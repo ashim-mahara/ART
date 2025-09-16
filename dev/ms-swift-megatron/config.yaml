@@ -19,7 +19,7 @@ envs:
   # HF_TOKEN: <paste-if-needed>
 
 # Everything below runs *inside* the container on the K8s node.
-setup: |
+setup: |2
   set -euxo pipefail
   mkdir -p /cache/hf /cache/ms /workspace/data /workspace/output
 
@@ -47,20 +47,20 @@ setup: |
 
   # Tiny local SFT dataset to avoid external fetches; valid ms-swift "messages" format.
   python3 - <<'PY'
-import json, os
-os.makedirs('/workspace/data', exist_ok=True)
-rows = [
-  {"messages":[{"role":"system","content":"You are helpful."},{"role":"user","content":"Write a haiku about the ocean."},{"role":"assistant","content":"Waves count ancient time /\nSalt maps the moonlit harbor /\nGulls stitch dawn to foam."}]},
-  {"messages":[{"role":"user","content":"Summarize: Transformers let tokens attend to each other."},{"role":"assistant","content":"Transformers use attention so tokens can select relevant context in parallel, enabling efficient, scalable sequence modeling."}]},
-  {"messages":[{"role":"user","content":"Convert 37 °C to Fahrenheit."},{"role":"assistant","content":"37 °C is 98.6 °F."}]},
-  {"messages":[{"role":"user","content":"List three prime numbers under 10."},{"role":"assistant","content":"2, 3, and 5 (and 7 is a bonus)."}]},
-  {"messages":[{"role":"user","content":"Explain Mixture-of-Experts in one sentence."},{"role":"assistant","content":"MoE routes each token through a small subset of specialized feed-forward experts, increasing capacity without proportional compute."}]}
-]
-with open('/workspace/data/minisft.jsonl','w') as f:
-  for r in rows: f.write(json.dumps(r, ensure_ascii=False) + "\n")
-PY
+  import json, os
+  os.makedirs('/workspace/data', exist_ok=True)
+  rows = [
+    {"messages":[{"role":"system","content":"You are helpful."},{"role":"user","content":"Write a haiku about the ocean."},{"role":"assistant","content":"Waves count ancient time /\nSalt maps the moonlit harbor /\nGulls stitch dawn to foam."}]},
+    {"messages":[{"role":"user","content":"Summarize: Transformers let tokens attend to each other."},{"role":"assistant","content":"Transformers use attention so tokens can select relevant context in parallel, enabling efficient, scalable sequence modeling."}]},
+    {"messages":[{"role":"user","content":"Convert 37 °C to Fahrenheit."},{"role":"assistant","content":"37 °C is 98.6 °F."}]},
+    {"messages":[{"role":"user","content":"List three prime numbers under 10."},{"role":"assistant","content":"2, 3, and 5 (and 7 is a bonus)."}]},
+    {"messages":[{"role":"user","content":"Explain Mixture-of-Experts in one sentence."},{"role":"assistant","content":"MoE routes each token through a small subset of specialized feed-forward experts, increasing capacity without proportional compute."}]}
+  ]
+  with open('/workspace/data/minisft.jsonl','w') as f:
+    for r in rows: f.write(json.dumps(r, ensure_ascii=False) + "\n")
+  PY
 
-run: |
+run: |2
   set -euxo pipefail
   export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
@@ -112,16 +112,16 @@ run: |
 
   # 4) Smoke test: load merged HF model and generate one answer
   python3 - <<'PY'
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch, os
-mdir="/workspace/output/qwen3-30b-a3b-lora-hf"
-tok=AutoTokenizer.from_pretrained(mdir)
-model=AutoModelForCausalLM.from_pretrained(mdir, torch_dtype=torch.bfloat16, device_map="auto")
-prompt="User: In one sentence, what is LoRA?\nAssistant:"
-x=tok(prompt, return_tensors="pt").to(model.device)
-y=model.generate(**x, max_new_tokens=32, do_sample=False)
-print(tok.decode(y[0], skip_special_tokens=True))
-PY
+  from transformers import AutoTokenizer, AutoModelForCausalLM
+  import torch, os
+  mdir="/workspace/output/qwen3-30b-a3b-lora-hf"
+  tok=AutoTokenizer.from_pretrained(mdir)
+  model=AutoModelForCausalLM.from_pretrained(mdir, torch_dtype=torch.bfloat16, device_map="auto")
+  prompt="User: In one sentence, what is LoRA?\nAssistant:"
+  x=tok(prompt, return_tensors="pt").to(model.device)
+  y=model.generate(**x, max_new_tokens=32, do_sample=False)
+  print(tok.decode(y[0], skip_special_tokens=True))
+  PY
 
 config:
   kubernetes:
