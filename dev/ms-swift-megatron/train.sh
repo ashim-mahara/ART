@@ -5,7 +5,7 @@ export NPROC_PER_NODE=2
 export CUDA_VISIBLE_DEVICES=0,1
 
 megatron sft \
-    --load Qwen/Qwen3-30B-A3B-Instruct-2507-mcore \
+    --load Qwen3-30B-A3B-Instruct-2507-mcore \
     --dataset \
         'AI-ModelScope/alpaca-gpt4-data-zh#500' \
         'AI-ModelScope/alpaca-gpt4-data-en#500' \
