@@ -1,8 +1,14 @@
 import asyncio
-from typing import TYPE_CHECKING, AsyncIterator, Literal
+from typing import TYPE_CHECKING, AsyncIterator, Literal, cast
+import os
 
 from art.client import Client
 from art.utils.deploy_model import LoRADeploymentJob, LoRADeploymentProvider
+from art.utils.trajectory_logging import get_metric_averages
+import wandb
+import weave
+from wandb.sdk.wandb_run import Run
+from weave.trace.weave_client import WeaveClient
 
 from .. import dev
 from ..backend import Backend
@@ -20,6 +26,8 @@ class ServerlessBackend(Backend):
         client = Client(api_key=api_key, base_url=base_url)
         super().__init__(base_url=str(client.base_url))
         self._client = client
+        self._wandb_runs: dict[str, Run] = {}
+        self._weave_clients: dict[str, WeaveClient] = {}
 
     async def close(self) -> None:
         await self._client.close()
@@ -56,12 +64,16 @@ class ServerlessBackend(Backend):
         assert model.entity is not None, "Model entity is required"
         return f"{model.entity}/{model.project}/{model.name}"
 
-    async def _get_step(self, model: "TrainableModel") -> int:
-        assert model.id is not None, "Model ID is required"
-        checkpoint = await self._client.checkpoints.retrieve(
-            model_id=model.id, step="latest"
-        )
-        return checkpoint.step
+    async def __get_step(self, model: "Model") -> int:
+        if model.trainable:
+            model = cast(TrainableModel, model)
+            assert model.id is not None, "Model ID is required"
+            checkpoint = await self._client.checkpoints.retrieve(
+                model_id=model.id, step="latest"
+            )
+            return checkpoint.step
+        # Non-trainable models do not have checkpoints/steps; default to 0
+        return 0
 
     async def _delete_checkpoints(
         self,
@@ -99,7 +111,60 @@ class ServerlessBackend(Backend):
         trajectory_groups: list[TrajectoryGroup],
         split: str = "val",
     ) -> None:
-        raise NotImplementedError
+        # TODO: log trajectories to local file system?
+
+        averages = get_metric_averages(trajectory_groups)
+        await self._log_metrics(model, averages, split)
+
+    async def _log_metrics(
+        self,
+        model: Model,
+        metrics: dict[str, float],
+        split: str,
+        step: int | None = None,
+    ) -> None:
+        metrics = {f"{split}/{metric}": value for metric, value in metrics.items()}
+        step = step if step is not None else await self.__get_step(model)
+
+        # TODO: Write to history.jsonl like we do in LocalBackend?
+
+        # If we have a W&B run, log the data there
+        if run := self._get_wandb_run(model):
+            # Mark the step metric itself as hidden so W&B doesn't create an automatic chart for it
+            wandb.define_metric("training_step", hidden=True)
+
+            # Enabling the following line will cause W&B to use the training_step metric as the x-axis for all metrics
+            # wandb.define_metric(f"{split}/*", step_metric="training_step")
+            run.log({"training_step": step, **metrics}, step=step)
+
+        # Report metrics to the W&B Training API
+        if model.trainable and model.id is not None:
+            await self._client.checkpoints.report_metrics(
+                model_id=model.id, step=step, metrics=metrics
+            )
+
+
+    def _get_wandb_run(self, model: Model) -> Run | None:
+        if "WANDB_API_KEY" not in os.environ:
+            return None
+        if (
+            model.name not in self._wandb_runs
+            or self._wandb_runs[model.name]._is_finished
+        ):
+            run = wandb.init(
+                project=model.project,
+                name=model.name,
+                id=model.name,
+                resume="allow",
+            )
+            self._wandb_runs[model.name] = run
+            os.environ["WEAVE_PRINT_CALL_LINK"] = os.getenv(
+                "WEAVE_PRINT_CALL_LINK", "False"
+            )
+            os.environ["WEAVE_LOG_LEVEL"] = os.getenv("WEAVE_LOG_LEVEL", "CRITICAL")
+            self._weave_clients[model.name] = weave.init(model.project)
+        return self._wandb_runs[model.name]
+        
 
     async def _train_model(
         self,

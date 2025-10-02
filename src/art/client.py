@@ -36,6 +36,10 @@ class DeleteCheckpointsResponse(BaseModel):
     not_found_steps: list[int]
 
 
+class ReportMetricsResponse(BaseModel):
+    success: bool
+
+
 class Checkpoints(AsyncAPIResource):
     async def retrieve(
         self, *, model_id: str, step: int | Literal["latest"]
@@ -78,6 +82,16 @@ class Checkpoints(AsyncAPIResource):
             f"/preview/models/{model_id}/checkpoints",
             body={"steps": steps},
             cast_to=DeleteCheckpointsResponse,
+            options=dict(max_retries=0),
+        )
+
+    async def report_metrics(
+        self, *, model_id: str, step: int | Literal["latest"], metrics: dict[str, float]
+    ) -> ReportMetricsResponse:
+        return await self._post(
+            f"/preview/models/{model_id}/checkpoints/{step}/report_metrics",
+            body={"metrics": metrics},
+            cast_to=ReportMetricsResponse,
             options=dict(max_retries=0),
         )
 
