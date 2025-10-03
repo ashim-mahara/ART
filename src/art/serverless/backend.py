@@ -64,9 +64,9 @@ class ServerlessBackend(Backend):
         assert model.entity is not None, "Model entity is required"
         return f"{model.entity}/{model.project}/{model.name}"
 
-    async def __get_step(self, model: "Model") -> int:
+
+    async def _get_step(self, model: "Model") -> int:
         if model.trainable:
-            model = cast(TrainableModel, model)
             assert model.id is not None, "Model ID is required"
             checkpoint = await self._client.checkpoints.retrieve(
                 model_id=model.id, step="latest"
@@ -118,13 +118,13 @@ class ServerlessBackend(Backend):
 
     async def _log_metrics(
         self,
-        model: Model,
+        model: "Model",
         metrics: dict[str, float],
         split: str,
         step: int | None = None,
     ) -> None:
         metrics = {f"{split}/{metric}": value for metric, value in metrics.items()}
-        step = step if step is not None else await self.__get_step(model)
+        step = step if step is not None else await self._get_step(model)
 
         # TODO: Write to history.jsonl like we do in LocalBackend?
 
@@ -144,7 +144,7 @@ class ServerlessBackend(Backend):
             )
 
 
-    def _get_wandb_run(self, model: Model) -> Run | None:
+    def _get_wandb_run(self, model: "Model") -> Run | None:
         if "WANDB_API_KEY" not in os.environ:
             return None
         if (

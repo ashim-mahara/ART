@@ -145,3 +145,5 @@ def get_metric_averages(trajectory_groups: list[TrajectoryGroup]) -> dict[str, f
 
     # Calculate average standard deviation of rewards within groups
     averages["reward_std_dev"] = calculate_step_std_dev(trajectory_groups)
+
+    return averages
