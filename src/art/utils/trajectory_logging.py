@@ -116,34 +116,3 @@ def dict_to_message_or_choice(dict: dict[str, Any]) -> MessageOrChoice:
         return Choice(**dict)
     else:
         return cast(Message, dict)
-
-def get_metric_averages(trajectory_groups: list[TrajectoryGroup]) -> dict[str, float]:
-    # Collect all metrics (including reward) across all trajectories
-    all_metrics: dict[str, list[float]] = {"reward": [], "exception_rate": []}
-
-    for group in trajectory_groups:
-        for trajectory in group:
-            if isinstance(trajectory, BaseException):
-                all_metrics["exception_rate"].append(1)
-                continue
-            else:
-                all_metrics["exception_rate"].append(0)
-            # Add reward metric
-            all_metrics["reward"].append(trajectory.reward)
-
-            # Collect other custom metrics
-            for metric, value in trajectory.metrics.items():
-                if metric not in all_metrics:
-                    all_metrics[metric] = []
-                all_metrics[metric].append(float(value))
-
-    # Calculate averages for all metrics
-    averages = {}
-    for metric, values in all_metrics.items():
-        if len(values) > 0:
-            averages[metric] = sum(values) / len(values)
-
-    # Calculate average standard deviation of rewards within groups
-    averages["reward_std_dev"] = calculate_step_std_dev(trajectory_groups)
-
-    return averages

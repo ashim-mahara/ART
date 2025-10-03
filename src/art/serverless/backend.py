@@ -113,58 +113,14 @@ class ServerlessBackend(Backend):
     ) -> None:
         # TODO: log trajectories to local file system?
 
-        averages = get_metric_averages(trajectory_groups)
-        await self._log_metrics(model, averages, split)
+        if not model.trainable:
+            print(f"Model {model.name} is not trainable; skipping logging.")
+            return
 
-    async def _log_metrics(
-        self,
-        model: "Model",
-        metrics: dict[str, float],
-        split: str,
-        step: int | None = None,
-    ) -> None:
-        metrics = {f"{split}/{metric}": value for metric, value in metrics.items()}
-        step = step if step is not None else await self._get_step(model)
+        await self._client.checkpoints.log_trajectories(
+            model_id=model.id, trajectory_groups=trajectory_groups, split=split
+        )
 
-        # TODO: Write to history.jsonl like we do in LocalBackend?
-
-        # If we have a W&B run, log the data there
-        if run := self._get_wandb_run(model):
-            # Mark the step metric itself as hidden so W&B doesn't create an automatic chart for it
-            wandb.define_metric("training_step", hidden=True)
-
-            # Enabling the following line will cause W&B to use the training_step metric as the x-axis for all metrics
-            # wandb.define_metric(f"{split}/*", step_metric="training_step")
-            run.log({"training_step": step, **metrics}, step=step)
-
-        # Report metrics to the W&B Training API
-        if model.trainable and model.id is not None:
-            await self._client.checkpoints.report_metrics(
-                model_id=model.id, step=step, metrics=metrics
-            )
-
-
-    def _get_wandb_run(self, model: "Model") -> Run | None:
-        if "WANDB_API_KEY" not in os.environ:
-            return None
-        if (
-            model.name not in self._wandb_runs
-            or self._wandb_runs[model.name]._is_finished
-        ):
-            run = wandb.init(
-                project=model.project,
-                name=model.name,
-                id=model.name,
-                resume="allow",
-            )
-            self._wandb_runs[model.name] = run
-            os.environ["WEAVE_PRINT_CALL_LINK"] = os.getenv(
-                "WEAVE_PRINT_CALL_LINK", "False"
-            )
-            os.environ["WEAVE_LOG_LEVEL"] = os.getenv("WEAVE_LOG_LEVEL", "CRITICAL")
-            self._weave_clients[model.name] = weave.init(model.project)
-        return self._wandb_runs[model.name]
-        
 
     async def _train_model(
         self,
