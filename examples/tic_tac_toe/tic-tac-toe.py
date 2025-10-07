@@ -13,7 +13,7 @@ load_dotenv()
 random.seed(42)
 
 PULL_FROM_S3 = False
-STEP = 50
+STEPS = 50
 DEPLOY_MODEL = False
 GENERATE_BENCHMARKS = False
 DESTROY_AFTER_RUN = False
@@ -55,7 +55,7 @@ async def main():
     await model.register(backend)
 
     print("training")
-    for i in range(await model.get_step(), STEP):
+    for i in range(await model.get_step(), STEPS):
         train_groups = await art.gather_trajectory_groups(
             (
                 art.TrajectoryGroup(

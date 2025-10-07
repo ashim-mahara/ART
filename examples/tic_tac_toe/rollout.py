@@ -11,25 +11,17 @@ from game_utils import (
     get_opponent_move,
     render_board,
 )
-from openpipe.client import OpenPipe
 from pydantic import BaseModel
 
 import art
 
 load_dotenv()
 
-op_client = OpenPipe()
-print("OpenPipe client initialized")
-
-
-op_client = OpenPipe(api_key=os.getenv("OPENPIPE_API_KEY"))
-
-
 class TicTacToeScenario(BaseModel):
     step: int
 
 
-@art.retry(exceptions=(openai.LengthFinishReasonError,))
+@art.retry(exceptions=(openai.LengthFinishReasonError,openai.RateLimitError,openai.APITimeoutError))
 async def rollout(model: art.Model, scenario: TicTacToeScenario) -> art.Trajectory:
     game = generate_game()
 
@@ -62,6 +54,11 @@ async def rollout(model: art.Model, scenario: TicTacToeScenario) -> art.Trajecto
 
         try:
             client = model.openai_client()
+            # client = AsyncOpenAI(
+            #     base_url=model.inference_base_url,
+            #     api_key=model.inference_api_key,
+            # )
+            
             chat_completion = await client.chat.completions.create(
                 model=model.get_inference_name(),
                 messages=messages,
@@ -110,30 +107,5 @@ async def rollout(model: art.Model, scenario: TicTacToeScenario) -> art.Trajecto
     trajectory.metrics["num_moves"] = move_number
     trajectory.metrics["invalid_move"] = 1 if invalid_move else 0
 
-    if op_client.api_key:
-        try:
-            reported_win = (
-                trajectory.metrics["win"] if "win" in trajectory.metrics else -1
-            )
-            op_client.report(
-                requested_at=requested_at,
-                received_at=int(time.time() * 1000),
-                req_payload={
-                    "model": model.name,
-                    "messages": messages,
-                    "metadata": {
-                        "notebook-id": "tic-tac-toe",
-                        "step": str(scenario.step),
-                        "num_moves": str(move_number),
-                        "win": str(reported_win),
-                        "reward": str(trajectory.reward),
-                        "invalid_move": str(invalid_move),
-                    },
-                },
-                resp_payload=chat_completion,
-                status_code=200,
-            )
-        except Exception as e:
-            print(f"Error reporting to OpenPipe: {e}")
 
     return trajectory
