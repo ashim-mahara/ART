@@ -39,10 +39,16 @@ Train multi-step agents for real-world tasks using GRPO.
 # After: Serverless RL with instant feedback
 from art.serverless.backend import ServerlessBackend
 
+model = art.TrainableModel(
+  project="voice-agent",
+  name="agent-001",
+  base_model="Qwen/Qwen2.5-14B-Instruct"
+)
+
 backend = ServerlessBackend(
-    model_id="qwen/Qwen2.5-14B",
     api_key="your_wandb_api_key"
 )
+model.register(backend)
 # Edit and iterate in minutes, not hours!
 ```
 
