@@ -9,6 +9,8 @@ from typing import Any, Generator
 
 import torch
 import wandb
+from safetensors.torch import load_file as load_sft
+from safetensors.torch import save_file as save_sft
 
 from art.model import TrainableModel
 from art.trajectories import TrajectoryGroup
@@ -34,7 +36,7 @@ async def mutate(
         deep=True,
     )
     run_id = await _async_download_lora(trainable_model.get_inference_name())
-    await asyncio.get_event_loop().run_in_executor(
+    await asyncio.get_running_loop().run_in_executor(
         executor,
         _mutate_and_upload_lora,
         trainable_model.get_inference_name(),
@@ -66,7 +68,7 @@ async def recombine(
     ]
     zscores = [
         sum(
-            (group.trajectories[i].reward - mean) / std
+            (group.trajectories[i].reward - mean) / max(std, 1e-8)
             for group, mean, std in zip(trajectory_groups, means, stds)
         )
         / len(trajectory_groups)
@@ -83,7 +85,7 @@ async def recombine(
     seeds = [artifact.metadata["seed"] for artifact in artifacts]
     noise_scales = [artifact.metadata["noise_scale"] for artifact in artifacts]
     run_id = await _async_download_lora(into.get_inference_name())
-    await asyncio.get_event_loop().run_in_executor(
+    await asyncio.get_running_loop().run_in_executor(
         executor,
         _recombine_and_upload_lora,
         into.get_inference_name(),
@@ -109,15 +111,21 @@ def _recombine_and_upload_lora(
     lora_dir = _lora_dir(model_inference_name)
     assert os.path.exists(lora_dir)
     lora_path = f"{lora_dir}/adapter_model.safetensors"
-    adapter_model = torch.load(lora_path)
-    for zscore, seed, noise_scale in zip(zscores, seeds, noise_scales):
-        _mutate_adapter_model(adapter_model, learning_rate * zscore * noise_scale, seed)
-    torch.save(adapter_model, lora_path)
+    adapter_model = load_sft(lora_path)
+    with torch.no_grad():
+        for zscore, seed, noise_scale in zip(zscores, seeds, noise_scales):
+            _mutate_adapter_model(
+                adapter_model,
+                learning_rate * zscore * noise_scale,
+                seed,
+            )
+    save_sft(adapter_model, lora_path)
     with _wandb_run(model_inference_name, run_id) as run:
         artifact = wandb.Artifact(
             _artifact_name(model_inference_name),
             type="lora",
             metadata={"wandb.base_model": base_model},
+            storage_region="coreweave-us",
         )
         artifact.add_dir(lora_dir)
         artifact = run.log_artifact(artifact)
@@ -146,8 +154,9 @@ def _download_lora(model_inference_name: str) -> str:
     """Download the corresponding LoRA from Weights & Biases."""
     artifact = wandb_api.artifact(_artifact_name(model_inference_name))
     artifact.download(_lora_dir(model_inference_name))
-    runs = artifact.used_by()
-    return runs[0].id
+    run = artifact.logged_by()
+    assert run is not None
+    return run.id
 
 
 def _mutate_and_upload_lora(
@@ -162,12 +171,12 @@ def _mutate_and_upload_lora(
     lora_dir = _lora_dir(model_inference_name)
     assert os.path.exists(lora_dir)
     mutated_lora_dir = _lora_dir(mutated_model_inference_name)
-    os.makedirs(mutated_lora_dir, exist_ok=True)
-    shutil.copytree(lora_dir, mutated_lora_dir)
+    shutil.copytree(lora_dir, mutated_lora_dir, dirs_exist_ok=True)
     mutated_lora_path = f"{mutated_lora_dir}/adapter_model.safetensors"
-    adapter_model = torch.load(mutated_lora_path)
-    _mutate_adapter_model(adapter_model, noise_scale, seed)
-    torch.save(adapter_model, mutated_lora_path)
+    adapter_model = load_sft(mutated_lora_path)
+    with torch.no_grad():
+        _mutate_adapter_model(adapter_model, noise_scale, seed)
+    save_sft(adapter_model, mutated_lora_path)
     with _wandb_run(mutated_model_inference_name, run_id) as run:
         artifact = wandb.Artifact(
             _artifact_name(mutated_model_inference_name),
@@ -207,7 +216,7 @@ def _wandb_run(
     entity, project, _ = (
         model_inference_name.removeprefix("wandb-artifact:///")
         .removesuffix(":latest")
-        .split("/")
+        .split("/", 2)
     )
     with wandb.init(entity=entity, project=project, id=run_id, resume="must") as run:
         yield run
