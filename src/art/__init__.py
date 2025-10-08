@@ -29,7 +29,7 @@ except ImportError:
     pass
 
 
-from . import dev
+from . import dev, es
 from .auto_trajectory import auto_trajectory, capture_auto_trajectory
 from .backend import Backend
 from .batches import trajectory_group_batches
@@ -42,6 +42,7 @@ from .yield_trajectory import capture_yielded_trajectory, yield_trajectory
 
 __all__ = [
     "dev",
+    "es",
     "auto_trajectory",
     "capture_auto_trajectory",
     "gather_trajectories",
