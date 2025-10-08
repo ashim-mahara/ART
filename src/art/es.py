@@ -21,41 +21,41 @@ executor = concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count() or 
 
 
 async def mutate(
-    trainable_model: TrainableModel,
+    model: TrainableModel,
     *,
     noise_scale: float = 1e-3,
     seed: int | None = None,
 ) -> TrainableModel:
     seed = seed or random.randint(0, 2**31 - 1)
-    mutated_model = trainable_model.model_copy(
+    mutated_model = model.model_copy(
         update={
-            "inference_model_name": trainable_model.get_inference_name().replace(
-                trainable_model.name, f"{trainable_model.name}-es-{seed}"
+            "inference_model_name": model.get_inference_name().replace(
+                model.name, f"{model.name}-es-{seed}"
             )
         },
         deep=True,
     )
-    run_id = await _async_download_lora(trainable_model.get_inference_name())
+    run_id = await _async_download_lora(model.get_inference_name())
     await asyncio.get_running_loop().run_in_executor(
         executor,
         _mutate_and_upload_lora,
-        trainable_model.get_inference_name(),
+        model.get_inference_name(),
         mutated_model.get_inference_name(),
         run_id,
-        trainable_model.base_model,
+        model.base_model,
         noise_scale,
         seed,
     )
     return mutated_model
 
 
-async def recombine(
+async def update(
+    model: TrainableModel,
     *,
     models: list[TrainableModel],
     trajectory_groups: list[TrajectoryGroup],
-    into: TrainableModel,
     learning_rate: float = 5e-4,
-) -> TrainableModel:
+) -> None:
     means = [
         sum(trajectory.reward for trajectory in group) / len(group)
         for group in trajectory_groups
@@ -77,29 +77,28 @@ async def recombine(
     artifacts = await asyncio.gather(
         *[
             asyncio.to_thread(
-                wandb_api.artifact, _artifact_name(model.get_inference_name())
+                wandb_api.artifact, _artifact_name(m.get_inference_name())
             )
-            for model in models
+            for m in models
         ]
     )
     seeds = [artifact.metadata["seed"] for artifact in artifacts]
     noise_scales = [artifact.metadata["noise_scale"] for artifact in artifacts]
-    run_id = await _async_download_lora(into.get_inference_name())
+    run_id = await _async_download_lora(model.get_inference_name())
     await asyncio.get_running_loop().run_in_executor(
         executor,
-        _recombine_and_upload_lora,
-        into.get_inference_name(),
+        _update_and_upload_lora,
+        model.get_inference_name(),
         run_id,
-        into.base_model,
+        model.base_model,
         learning_rate,
         zscores,
         seeds,
         noise_scales,
     )
-    return into
 
 
-def _recombine_and_upload_lora(
+def _update_and_upload_lora(
     model_inference_name: str,
     run_id: str,
     base_model: str,
