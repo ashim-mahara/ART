@@ -120,8 +120,6 @@ async def update(
     # )
     lora_dir = _update_lora(
         model.get_inference_name(),
-        run_id,
-        model.base_model,
         learning_rate,
         zscores,
         seeds,
@@ -160,8 +158,6 @@ async def _get_run(run_id: str, model_inference_name: str) -> wandb.Run:
 
 def _update_lora(
     model_inference_name: str,
-    run_id: str,
-    base_model: str,
     learning_rate: float,
     zscores: list[float],
     seeds: list[int],
