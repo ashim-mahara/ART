@@ -253,12 +253,14 @@ def tokenize_trajectory(
             ),
         )
         result = image_processor(images=images)
+        offset = 0
         for num_image_tokens in (
             image_grid_thw.prod().item()
             // (getattr(image_processor, "merge_size", 1) ** 2)
             for image_grid_thw in result["image_grid_thw"]
         ):
-            start = token_ids.index(image_token_id)
+            start = token_ids.index(image_token_id, offset)
+            offset = start + num_image_tokens
             end = start + 1
             token_ids[start:end] = [image_token_id] * num_image_tokens
             logprobs[start:end] = [float("nan")] * num_image_tokens
