@@ -212,12 +212,21 @@ class UnslothService:
 
     def _set_lora(self, lora_path: str) -> None:
         """Sets the LoRA adapter with ID 1 in the vLLM engine."""
-        lora_request: "LoRARequest" = self.state.peft_model.load_lora(
-            lora_path,
-            load_tensors=True,
-        )  # type: ignore
-        lora_request.lora_int_id = 1
-        lora_request.lora_name = self.model_name
-        lora_request.lora_path = lora_path
+        from vllm.lora.request import LoRARequest
+
+        if hasattr(self.state.peft_model, "load_lora"):
+            lora_request: LoRARequest = self.state.peft_model.load_lora(
+                lora_path,
+                load_tensors=True,
+            )  # type: ignore
+            lora_request.lora_int_id = 1
+            lora_request.lora_name = self.model_name
+            lora_request.lora_path = lora_path
+        else:
+            lora_request = LoRARequest(
+                lora_name=self.model_name,
+                lora_int_id=1,
+                lora_path=lora_path,
+            )
         self.state.vllm.async_engine.engine.remove_lora(1)
         self.state.vllm.async_engine.engine.add_lora(lora_request)  # type: ignore
