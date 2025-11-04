@@ -69,4 +69,5 @@ def get_model_config(
         peft_args=peft_args,
         tinker_args=config.get("tinker_args"),
         trainer_args=trainer_args,
+        _use_pipeline_rl=config.get("_use_pipeline_rl", False),
     )

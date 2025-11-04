@@ -122,6 +122,7 @@ class InternalModelConfig(TypedDict, total=False):
     peft_args: "PeftArgs"
     tinker_args: "TinkerArgs | None"
     trainer_args: "TrainerArgs"
+    _use_pipeline_rl: bool
 
 
 class TinkerArgs(TypedDict, total=False):
