@@ -144,6 +144,7 @@ class LocalBackend(Backend):
         from ..dev.get_model_config import get_model_config
 
         if model.name not in self._services:
+            logger.info(f"[BACKEND] Creating service for model: {model.name}")
             config = get_model_config(
                 base_model=model.base_model,
                 output_dir=get_model_dir(model=model, art_path=self._path),
@@ -158,6 +159,11 @@ class LocalBackend(Backend):
                 from .pipeline_rl_service import PipelineRLService
 
                 service_class = PipelineRLService
+                logger.info("[BACKEND] Using PipelineRLService")
+                trainer_gpu_ids = config.get("trainer_gpu_ids", [0])
+                inference_gpu_ids = config.get("inference_gpu_ids", None)
+                logger.info(f"[BACKEND]   Trainer GPUs: {trainer_gpu_ids}")
+                logger.info(f"[BACKEND]   Inference GPUs: {inference_gpu_ids}")
             else:
                 from ..unsloth.service import UnslothService
 
@@ -171,13 +177,20 @@ class LocalBackend(Backend):
                 config=config,
                 output_dir=get_model_dir(model=model, art_path=self._path),
             )
+            logger.info(f"[BACKEND] Service initialized: {service_class.__name__}")
+
             if not self._in_process:
+                logger.info("[BACKEND] Moving service to child process...")
                 # Kill all "model-service" processes to free up GPU memory
                 subprocess.run(["pkill", "-9", "model-service"])
                 self._services[model.name] = move_to_child_process(
                     self._services[model.name],
                     process_name="tinker-service" if is_tinker else "model-service",
                 )
+                # at this point model-service exists in child process
+                logger.info("[BACKEND] Service moved to child process")
+        else:
+            logger.info(f"[BACKEND] Reusing existing service for model: {model.name}")
         return self._services[model.name]
 
     def _get_packed_tensors(
@@ -279,89 +292,50 @@ class LocalBackend(Backend):
         model: TrainableModel,
         config: dev.OpenAIServerConfig | None = None,
     ) -> tuple[str, str]:
+        logger.info("=" * 80)
+        logger.info("[BACKEND] Preparing backend for training")
+        logger.info("=" * 80)
+        logger.info(f"[BACKEND] Model: {model.name}")
+        logger.info(f"[BACKEND] Base model: {model.base_model}")
+
+        # Check if this is PipelineRL
         from ..dev.get_model_config import get_model_config
 
-        model_config = get_model_config(
+        internal_config = get_model_config(
             base_model=model.base_model,
             output_dir=get_model_dir(model=model, art_path=self._path),
             config=model._internal_config,
         )
+        is_pipeline_rl = internal_config.get("_use_pipeline_rl", False)
 
-        if model_config.get("_use_pipeline_rl", False):
-            INFERENCE_GPU_IDS = [1]
-            TRAINING_GPU_IDS = [0]
-            original_cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+        logger.info("[BACKEND] Step 1: Getting service...")
+        service = await self._get_service(model)
 
-            # Set CUDA_VISIBLE_DEVICES to only show trainer GPUs
-            # This will be inherited by the subprocess created by @mp_actors.move
-            trainer_gpu_str = ",".join(str(gpu_id) for gpu_id in TRAINING_GPU_IDS)
-            os.environ["CUDA_VISIBLE_DEVICES"] = trainer_gpu_str
-            logger.info(
-                f"[PIPELINE_RL]   Temporarily set CUDA_VISIBLE_DEVICES={trainer_gpu_str}"
-            )
-            logger.info(f"[PIPELINE_RL]   (original was: {original_cuda_visible})")
+        logger.info("[BACKEND] Step 2: Initialize process groups and vLLM")
+        if is_pipeline_rl:
+            await service.initialize_process_groups_and_vllm(config=config)
 
-            # Get service
-            try:
-                service = await self._get_service(model)
-                init_method, world_size = (
-                    await service._init_process_group_for_weight_updates(
-                        model, len(INFERENCE_GPU_IDS)
-                    )
-                )
-                # logger.info(f"Service: {service._obj}")
-            finally:
-                if original_cuda_visible is not None:
-                    os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_visible
-                else:
-                    os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-                logger.info(
-                    f"[PIPELINE_RL]   Restored CUDA_VISIBLE_DEVICES to: {original_cuda_visible}"
-                )
-            logger.info("[2048_PIPELINE] Starting vLLM...")
-            await service.start_openai_server_with_weight_updates(
-                config=config,
-                init_method=init_method,
-                world_size=world_size,
-                actor_idx=0,
-                inference_gpu_ids=INFERENCE_GPU_IDS,
-            )
-            self._actor_update_group = await service._join_process_group_as_trainer(
-                init_method, world_size
-            )
-            server_args = (config or {}).get("server_args", {})
+        logger.info("[BACKEND] Step 3: Starting OpenAI server...")
+        await service.start_openai_server(config=config)
+        server_args = (config or {}).get("server_args", {})
 
-            base_url = f"http://{server_args.get('host', '0.0.0.0')}:{server_args.get('port', 8000)}/v1"
-            api_key = server_args.get("api_key", None) or "default"
-            await service._wait_for_vllm_ready(base_url)
-            logger.info("[2048_PIPELINE] vLLM is ready!")
+        base_url = f"http://{server_args.get('host', '0.0.0.0')}:{server_args.get('port', 8000)}/v1"
+        api_key = server_args.get("api_key", None) or "default"
+        logger.info("")
+        logger.info("[BACKEND] Step 3: OpenAI server started")
+        logger.info(f"[BACKEND]   Base URL: {base_url}")
+        logger.info(f"[BACKEND]   API Key: {api_key}")
+        logger.info("")
 
-            def done_callback(_: asyncio.Task[None]) -> None:
-                logger.info("OpenAI server Monitor done callback is called")
-                close_proxy(self._services.pop(model.name))
+        def done_callback(_: asyncio.Task[None]) -> None:
+            logger.info("OpenAI server Monitor done callback is called")
+            close_proxy(self._services.pop(model.name))
 
-            # asyncio.create_task(
-            #     self._monitor_openai_server(model.name, base_url, api_key)
-            # ).add_done_callback(done_callback)
+        asyncio.create_task(
+            self._monitor_openai_server(model.name, base_url, api_key)
+        ).add_done_callback(done_callback)
 
-            return base_url, api_key
-        else:
-            service = await self._get_service(model)
-            await service.start_openai_server(config=config)
-            server_args = (config or {}).get("server_args", {})
-
-            base_url = f"http://{server_args.get('host', '0.0.0.0')}:{server_args.get('port', 8000)}/v1"
-            api_key = server_args.get("api_key", None) or "default"
-
-            def done_callback(_: asyncio.Task[None]) -> None:
-                logger.info("OpenAI server Monitor done callback is called")
-                close_proxy(self._services.pop(model.name))
-
-            asyncio.create_task(
-                self._monitor_openai_server(model.name, base_url, api_key)
-            ).add_done_callback(done_callback)
-
-            return base_url, api_key
+        return base_url, api_key
 
     async def _monitor_openai_server(
         self, model_name: str, base_url: str, api_key: str
