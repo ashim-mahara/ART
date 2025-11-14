@@ -147,8 +147,8 @@ async def train_sft_from_file(
         warmup_steps=warmup_steps,
     )
 
-    # Create SFT config
-    config = SFTConfig(learning_rate=learning_rates, batch_size=batch_size)
+    # Create SFT config with shuffling enabled
+    config = SFTConfig(learning_rate=learning_rates, batch_size=batch_size, shuffle=True)
 
     # Train the model
     await model.train_sft(
