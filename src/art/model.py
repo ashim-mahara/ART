@@ -7,7 +7,7 @@ from typing_extensions import Never
 
 from . import dev
 from .trajectories import Trajectory, TrajectoryGroup
-from .types import TrainConfig
+from .types import SFTConfig, TrainConfig
 
 if TYPE_CHECKING:
     from art.backend import Backend
@@ -384,5 +384,27 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         """
         async for _ in self.backend()._train_model(
             self, list(trajectory_groups), config, _config or {}, verbose
+        ):
+            pass
+
+    async def train_sft(
+        self,
+        trajectories: Iterable[Trajectory],
+        config: SFTConfig,
+        _config: dev.SFTConfig | None = None,
+        verbose: bool = False,
+    ) -> None:
+        """
+        Supervised fine-tune the model with trajectories and per-batch learning rates.
+
+        Args:
+            trajectories: An iterable of Trajectory objects.
+            config: SFT configuration including learning_rates and batch_size.
+            _config: Additional experimental configuration that is subject to change and
+                not yet part of the public API. Use at your own risk.
+            verbose: Whether to print verbose output.
+        """
+        async for _ in self.backend()._train_sft(
+            self, trajectories, config, _config or {}, verbose
         ):
             pass

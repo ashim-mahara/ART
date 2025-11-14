@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING, AsyncIterator, Literal
+from typing import TYPE_CHECKING, AsyncIterator, Iterable, Literal
 
 from openai._types import NOT_GIVEN
 from tqdm import auto as tqdm
@@ -9,8 +9,8 @@ from art.utils.deploy_model import LoRADeploymentJob, LoRADeploymentProvider
 
 from .. import dev
 from ..backend import Backend
-from ..trajectories import TrajectoryGroup
-from ..types import TrainConfig
+from ..trajectories import Trajectory, TrajectoryGroup
+from ..types import SFTConfig, TrainConfig
 
 if TYPE_CHECKING:
     from ..model import Model, TrainableModel
@@ -158,6 +158,21 @@ class ServerlessBackend(Backend):
                     )
                     raise RuntimeError(f"Training job failed: {error_message}")
                 after = event.id
+
+    async def _train_sft(
+        self,
+        model: "TrainableModel",
+        trajectories: Iterable[Trajectory],
+        config: SFTConfig,
+        dev_config: dev.SFTConfig,
+        verbose: bool = False,
+    ) -> AsyncIterator[dict[str, float]]:
+        raise NotImplementedError(
+            "SFT training is not yet implemented for ServerlessBackend. "
+            "Please use the Backend HTTP API or implement this method."
+        )
+        # This yield is unreachable but makes this an async generator
+        yield  # type: ignore
 
     # ------------------------------------------------------------------
     # Experimental support for S3

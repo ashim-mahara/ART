@@ -5,7 +5,7 @@ import os
 import subprocess
 from datetime import datetime
 from types import TracebackType
-from typing import AsyncIterator, Literal, cast
+from typing import AsyncIterator, Iterable, Literal, cast
 
 import aiohttp
 import numpy as np
@@ -53,7 +53,7 @@ from ..preprocessing.pack import (
 )
 from ..preprocessing.tokenize import tokenize_trajectory_groups
 from ..trajectories import Trajectory, TrajectoryGroup
-from ..types import Message, TrainConfig
+from ..types import Message, SFTConfig, TrainConfig
 from ..utils import format_message, get_model_step
 from .checkpoints import (
     delete_checkpoints,
@@ -512,6 +512,21 @@ class LocalBackend(Backend):
         self._log_metrics(model, data, "train", step=current_step)
         if verbose:
             print("_train_model complete")
+
+    async def _train_sft(
+        self,
+        model: TrainableModel,
+        trajectories: Iterable[Trajectory],
+        config: SFTConfig,
+        dev_config: dev.SFTConfig,
+        verbose: bool = False,
+    ) -> AsyncIterator[dict[str, float]]:
+        raise NotImplementedError(
+            "SFT training is not yet implemented for LocalBackend. "
+            "Please use the Backend HTTP API or implement this method."
+        )
+        # This yield is unreachable but makes this an async generator
+        yield  # type: ignore
 
     def _get_reward_std_dev_learning_rate_multiplier(
         self, model: TrainableModel
