@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Iterable, Literal
 
 import pydantic
 from openai.types.chat.chat_completion import Choice
@@ -15,6 +15,11 @@ Tools = list[ChatCompletionToolParam]
 class TrainConfig(pydantic.BaseModel):
     learning_rate: float = 5e-6
     beta: float = 0.0
+
+
+class SFTConfig(pydantic.BaseModel):
+    learning_rates: Iterable[float]
+    batch_size: int
 
 
 Verbosity = Literal[0, 1, 2]
