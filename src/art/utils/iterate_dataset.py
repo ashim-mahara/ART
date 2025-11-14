@@ -123,31 +123,98 @@ def get_file_row_count(file_path: str) -> int:
     return count
 
 
-def iterate_trajectories(
-    trajectories: List["Trajectory"], epochs: int
-) -> Generator["Trajectory", None, None]:
+def get_total_steps(traj_len: int, epochs: int, batch_size: int) -> int:
     """
-    Iterate over a list of trajectories for multiple epochs.
+    Calculate total number of training steps given dataset size, epochs, and batch size.
+
+    Args:
+        traj_len: Number of trajectories in the dataset
+        epochs: Number of epochs to train
+        batch_size: Number of trajectories per batch/step
+
+    Returns:
+        Total number of training steps
+
+    Example:
+        # 100 trajectories, 3 epochs, batch size of 10
+        total_steps = get_total_steps(100, 3, 10)
+        # Returns 30 (10 steps per epoch * 3 epochs)
+
+        # With partial batch at end
+        total_steps = get_total_steps(105, 3, 10)
+        # Returns 33 (11 steps per epoch * 3 epochs)
+    """
+    steps_per_epoch = math.ceil(traj_len / batch_size)
+    return steps_per_epoch * epochs
+
+
+def iterate_trajectories(
+    trajectories: List["Trajectory"],
+    epochs: int,
+    batch_size: int,
+    chunk_size: int = 1,
+    initial_step: int = 0,
+) -> Generator[List["Trajectory"], None, None]:
+    """
+    Iterate over a list of trajectories for multiple epochs, yielding batches.
+    Shuffles trajectories at the start of each epoch with a fixed seed for reproducibility.
 
     Args:
         trajectories: List of Trajectory objects
         epochs: Number of times to iterate over the list
+        batch_size: Number of chunks per batch
+        chunk_size: Number of trajectories per chunk. Defaults to 1.
+        initial_step: The global step number to start from. Defaults to 0.
+                      Useful for resuming training.
 
     Yields:
-        Trajectory objects from the list
+        List of trajectories (batch_size * chunk_size items)
 
     Example:
         # Load trajectories once
         trajs = [traj1, traj2, traj3]
 
-        # Iterate 3 times
-        for traj in iterate_trajectories(trajs, epochs=3):
-            # Process trajectory
+        # Iterate 3 epochs, 2 trajectories per batch
+        for batch in iterate_trajectories(trajs, epochs=3, batch_size=2):
+            # batch is a list of 2 trajectories
+            train_sft(batch, ...)
+
+        # With chunk_size
+        for batch in iterate_trajectories(trajs, epochs=3, batch_size=4, chunk_size=5):
+            # batch is a list of 20 trajectories (4 chunks * 5 per chunk)
+            pass
+
+        # Resume from step 10
+        for batch in iterate_trajectories(trajs, epochs=3, batch_size=2, initial_step=10):
+            # Skips first 10 batches, starts from step 10
             pass
     """
-    for _ in range(epochs):
-        for trajectory in trajectories:
-            yield trajectory
+
+    dataset_size = len(trajectories)
+    if dataset_size == 0:
+        return
+
+    items_per_step = batch_size * chunk_size
+    steps_per_epoch = math.ceil(dataset_size / items_per_step)
+
+    for epoch in range(epochs):
+        # Create indices and shuffle deterministically based on epoch
+        indices = list(range(dataset_size))
+        random.seed(epoch)
+        random.shuffle(indices)
+
+        for i in range(0, dataset_size, items_per_step):
+            batch_index = i // items_per_step
+            # Calculate global step number
+            global_step = epoch * steps_per_epoch + batch_index
+
+            # Skip if before initial_step
+            if global_step < initial_step:
+                continue
+
+            batch_indices = indices[i : i + items_per_step]
+            batch_items = [trajectories[idx] for idx in batch_indices]
+            yield batch_items
 
 
 def iterate_file(file_path: str, epochs: int) -> Generator["Trajectory", None, None]:
@@ -195,93 +262,3 @@ def iterate_file(file_path: str, epochs: int) -> Generator["Trajectory", None, N
                     tools=tools if tools else None,
                     reward=0.0
                 )
-
-
-def chunk_trajectories(
-    trajectories: Iterable["Trajectory"],
-    batch_size: int,
-    chunk_size: int,
-    shuffle_buffer_size: int = 10000,
-    seed: int | None = None,
-) -> Generator[List["Trajectory"], None, None]:
-    """
-    Chunk trajectories from an iterable into batches.
-
-    Args:
-        trajectories: Iterable of Trajectory objects (can be list, generator, etc.)
-        batch_size: Number of chunks per batch
-        chunk_size: Number of trajectories per chunk
-        shuffle_buffer_size: Size of shuffle buffer. Default: 10000 (~200MB-1GB).
-                            Set to 0 for no shuffle (sequential order).
-                            Recommended: 1000-50000 depending on available RAM.
-                            Larger buffer = better shuffle quality but more memory.
-        seed: Random seed for deterministic shuffling. Default: None (non-deterministic).
-              Set to an integer for reproducible results.
-
-    Yields:
-        List of trajectories (batch_size * chunk_size items)
-
-    Example:
-        # Default shuffle (buffer_size=10000, random)
-        chunk_trajectories(iterate_file("data.jsonl", epochs=1), 4, 8)
-
-        # Deterministic shuffle (reproducible)
-        chunk_trajectories(iterate_file("data.jsonl", epochs=1), 4, 8, seed=42)
-
-        # No shuffle
-        chunk_trajectories(iterate_file("data.jsonl", epochs=1), 4, 8, shuffle_buffer_size=0)
-
-        # Larger buffer for better shuffle
-        chunk_trajectories(iterate_file("data.jsonl", epochs=1), 4, 8, shuffle_buffer_size=50000, seed=42)
-    """
-    items_per_batch = batch_size * chunk_size
-
-    if shuffle_buffer_size > 0:
-        # Set seed for deterministic shuffling
-        if seed is not None:
-            random.seed(seed)
-
-        # Buffer-based shuffle
-        shuffle_buffer: List["Trajectory"] = []
-        batch_items = []
-
-        for trajectory in trajectories:
-            shuffle_buffer.append(trajectory)
-
-            # Once buffer is full, start yielding
-            if len(shuffle_buffer) >= shuffle_buffer_size:
-                # Pop random item from buffer
-                idx = random.randint(0, len(shuffle_buffer) - 1)
-                traj = shuffle_buffer.pop(idx)
-
-                batch_items.append(traj)
-
-                if len(batch_items) == items_per_batch:
-                    yield batch_items
-                    batch_items = []
-
-        # Flush remaining items in shuffle buffer
-        random.shuffle(shuffle_buffer)
-        for traj in shuffle_buffer:
-            batch_items.append(traj)
-
-            if len(batch_items) == items_per_batch:
-                yield batch_items
-                batch_items = []
-
-        # Yield any remaining items as a final batch
-        if batch_items:
-            yield batch_items
-    else:
-        # No shuffle - simple batching
-        batch_items = []
-        for trajectory in trajectories:
-            batch_items.append(trajectory)
-
-            if len(batch_items) == items_per_batch:
-                yield batch_items
-                batch_items = []
-
-        # Yield any remaining items as a final batch
-        if batch_items:
-            yield batch_items
