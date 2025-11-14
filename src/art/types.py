@@ -20,6 +20,7 @@ class TrainConfig(pydantic.BaseModel):
 class SFTConfig(pydantic.BaseModel):
     learning_rate: float | Iterable[float]
     batch_size: int
+    shuffle: bool = False
 
 
 Verbosity = Literal[0, 1, 2]
