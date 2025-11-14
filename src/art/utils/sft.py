@@ -106,9 +106,9 @@ def iterate_learning_rates(
 async def train_sft_from_file(
     model: "TrainableModel",
     file_path: str,
-    batch_size: int,
+    epochs: int,
     learning_rate: float,
-    epochs: int
+    batch_size: int = 8,
 ) -> None:
     """
     Convenience function to train a model with SFT from a JSONL file.
@@ -116,17 +116,16 @@ async def train_sft_from_file(
     Args:
         model: TrainableModel to train
         file_path: Path to JSONL file containing trajectories
-        batch_size: Number of trajectories per batch/step
-        learning_rate: Peak learning rate (uses cosine schedule)
         epochs: Number of epochs to train
+        learning_rate: Peak learning rate (uses cosine schedule)
+        batch_size: Number of trajectories per batch/step. Defaults to 8.
 
     Example:
         await train_sft_from_file(
             model=model,
             file_path="data.jsonl",
-            batch_size=10,
-            learning_rate=1e-5,
             epochs=3,
+            learning_rate=1e-5,
         )
     """
     from art.types import SFTConfig
