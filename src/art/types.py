@@ -18,7 +18,7 @@ class TrainConfig(pydantic.BaseModel):
 
 
 class SFTConfig(pydantic.BaseModel):
-    learning_rates: Iterable[float]
+    learning_rate: float | Iterable[float]
     batch_size: int
 
 
