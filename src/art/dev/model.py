@@ -123,6 +123,7 @@ class InternalModelConfig(TypedDict, total=False):
     tinker_args: "TinkerArgs | None"
     trainer_args: "TrainerArgs"
     _use_pipeline_rl: bool
+    _async_rl: bool
     trainer_gpu_ids: list[int]
     inference_gpu_ids: list[int]
 

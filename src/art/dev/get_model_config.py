@@ -70,4 +70,5 @@ def get_model_config(
         tinker_args=config.get("tinker_args"),
         trainer_args=trainer_args,
         _use_pipeline_rl=config.get("_use_pipeline_rl", False),
+        _async_rl=config.get("_async_rl", False),
     )
