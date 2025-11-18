@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING, AsyncIterator, Iterable, Literal
+from typing import TYPE_CHECKING, AsyncIterator, Iterable, List, Literal
 
 from openai._types import NOT_GIVEN
 from tqdm import auto as tqdm
@@ -162,7 +162,7 @@ class ServerlessBackend(Backend):
     async def _train_sft(
         self,
         model: "TrainableModel",
-        trajectories: Iterable[Trajectory],
+        trajectories: Iterable[List[Trajectory]],
         config: SFTConfig,
         dev_config: dev.SFTConfig,
         verbose: bool = False,

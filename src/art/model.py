@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Generic, Iterable, Optional, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Generic, Iterable, List, Optional, TypeVar, cast, overload
 
 import httpx
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
@@ -389,16 +389,16 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
 
     async def train_sft(
         self,
-        trajectories: Iterable[Trajectory],
+        trajectories: Iterable[List[Trajectory]],
         config: SFTConfig,
         _config: dev.SFTConfig | None = None,
         verbose: bool = False,
     ) -> None:
         """
-        Supervised fine-tune the model with trajectories and per-batch learning rates.
+        Supervised fine-tune the model with batches of trajectories.
 
         Args:
-            trajectories: An iterable of Trajectory objects.
+            trajectories: An iterable of trajectory batches (lists of Trajectory objects).
             config: SFT configuration including learning_rates and batch_size.
             _config: Additional experimental configuration that is subject to change and
                 not yet part of the public API. Use at your own risk.

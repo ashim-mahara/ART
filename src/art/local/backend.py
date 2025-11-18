@@ -5,7 +5,7 @@ import os
 import subprocess
 from datetime import datetime
 from types import TracebackType
-from typing import AsyncIterator, Iterable, Literal, cast
+from typing import AsyncIterator, Iterable, List, Literal, cast
 
 import aiohttp
 import numpy as np
@@ -516,7 +516,7 @@ class LocalBackend(Backend):
     async def _train_sft(
         self,
         model: TrainableModel,
-        trajectories: Iterable[Trajectory],
+        trajectories: Iterable[List[Trajectory]],
         config: SFTConfig,
         dev_config: dev.SFTConfig,
         verbose: bool = False,
