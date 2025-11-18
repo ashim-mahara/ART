@@ -129,11 +129,11 @@ async def train_sft_from_file(
         )
     """
     from art.types import SFTConfig
-    from art.utils.iterate_dataset import get_file_row_count, get_total_steps, iterate_file
+    from art.utils.iterate_dataset import get_file_row_count, iterate_file
 
-    # Calculate total steps
+    # Calculate total steps - batches carry over across epochs
     num_trajectories = get_file_row_count(file_path)
-    total_steps = get_total_steps(num_trajectories, epochs, batch_size)
+    total_steps = math.ceil((num_trajectories * epochs) / batch_size)
 
     # Set warmup steps: 10% of total steps, capped at 1000
     warmup_steps = min(total_steps // 10, 1000)
@@ -147,10 +147,10 @@ async def train_sft_from_file(
     )
 
     # Create SFT config with shuffling enabled
-    config = SFTConfig(learning_rate=learning_rates, batch_size=batch_size, shuffle=True)
+    config = SFTConfig(learning_rate=learning_rates)
 
     # Train the model
     await model.train_sft(
-        trajectories=iterate_file(file_path, epochs=epochs),
+        trajectories=iterate_file(file_path, epochs=epochs, batch_size=batch_size),
         config=config
     )

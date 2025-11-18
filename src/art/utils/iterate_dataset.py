@@ -2,9 +2,12 @@ import json
 import math
 import random
 from dataclasses import dataclass
-from typing import Any, Generator, Generic, Iterable, List, TypeVar
+from typing import TYPE_CHECKING, Any, Generator, Generic, Iterable, List, TypeVar
 
 from tqdm.auto import tqdm
+
+if TYPE_CHECKING:
+    from art.trajectories import Trajectory
 
 T = TypeVar("T")
 
@@ -154,39 +157,40 @@ def iterate_trajectories(
     batch_size: int,
     chunk_size: int = 1,
     initial_step: int = 0,
-) -> Generator[List["Trajectory"], None, None]:
+) -> Generator[List[List["Trajectory"]], None, None]:
     """
-    Iterate over a list of trajectories for multiple epochs, yielding batches.
+    Iterate over a list of trajectories for multiple epochs, yielding chunks of batches.
     Shuffles trajectories at the start of each epoch with a fixed seed for reproducibility.
 
     Args:
         trajectories: List of Trajectory objects
         epochs: Number of times to iterate over the list
-        batch_size: Number of chunks per batch
-        chunk_size: Number of trajectories per chunk. Defaults to 1.
+        batch_size: Number of trajectories per batch (inner list size)
+        chunk_size: Number of batches per chunk (outer list size). Defaults to 1.
         initial_step: The global step number to start from. Defaults to 0.
                       Useful for resuming training.
 
     Yields:
-        List of trajectories (batch_size * chunk_size items)
+        List of lists of trajectories (chunk_size batches, each with batch_size trajectories)
 
     Example:
         # Load trajectories once
-        trajs = [traj1, traj2, traj3]
+        trajs = [traj1, traj2, traj3, traj4]
 
-        # Iterate 3 epochs, 2 trajectories per batch
-        for batch in iterate_trajectories(trajs, epochs=3, batch_size=2):
-            # batch is a list of 2 trajectories
-            train_sft(batch, ...)
+        # Iterate 3 epochs, 2 trajectories per batch, 1 batch per chunk
+        for chunk in iterate_trajectories(trajs, epochs=3, batch_size=2, chunk_size=1):
+            # chunk is [[traj1, traj2]] or [[traj3, traj4]]
+            train_sft(chunk, ...)
 
-        # With chunk_size
-        for batch in iterate_trajectories(trajs, epochs=3, batch_size=4, chunk_size=5):
-            # batch is a list of 20 trajectories (4 chunks * 5 per chunk)
+        # With chunk_size > 1
+        for chunk in iterate_trajectories(trajs, epochs=3, batch_size=5, chunk_size=4):
+            # chunk is a list of 4 batches, each batch has 5 trajectories
+            # [[traj0-4], [traj5-9], [traj10-14], [traj15-19]]
             pass
 
         # Resume from step 10
-        for batch in iterate_trajectories(trajs, epochs=3, batch_size=2, initial_step=10):
-            # Skips first 10 batches, starts from step 10
+        for chunk in iterate_trajectories(trajs, epochs=3, batch_size=2, chunk_size=1, initial_step=10):
+            # Skips first 10 chunks, starts from step 10
             pass
     """
 
@@ -204,61 +208,145 @@ def iterate_trajectories(
         random.shuffle(indices)
 
         for i in range(0, dataset_size, items_per_step):
-            batch_index = i // items_per_step
+            step_index = i // items_per_step
             # Calculate global step number
-            global_step = epoch * steps_per_epoch + batch_index
+            global_step = epoch * steps_per_epoch + step_index
 
             # Skip if before initial_step
             if global_step < initial_step:
                 continue
 
-            batch_indices = indices[i : i + items_per_step]
-            batch_items = [trajectories[idx] for idx in batch_indices]
-            yield batch_items
+            step_indices = indices[i : i + items_per_step]
+
+            # Structure as list of batches, where each batch has batch_size trajectories
+            chunk: List[List["Trajectory"]] = []
+            for batch_idx in range(0, len(step_indices), batch_size):
+                batch_indices = step_indices[batch_idx : batch_idx + batch_size]
+                batch = [trajectories[idx] for idx in batch_indices]
+                chunk.append(batch)
+
+            yield chunk
 
 
-def iterate_file(file_path: str, epochs: int) -> Generator["Trajectory", None, None]:
+def iterate_file(
+    file_path: str,
+    epochs: int,
+    batch_size: int,
+    shuffle: bool = True,
+    shuffle_buffer_size: int = 10000,
+    seed: int | None = 42,
+) -> Generator[List["Trajectory"], None, None]:
     """
-    Read JSONL file for each epoch, yielding Trajectory objects.
+    Read JSONL file for each epoch, yielding batches of Trajectory objects.
 
     Each line should contain a dict with:
     - messages: List of chat messages
     - tools: Optional list of tools
-    - reward: Optional reward (defaults to default_reward)
+    - reward: Optional reward (defaults to 0.0)
     - split: Optional split name (stored in metadata)
     - Any other fields will be stored in metadata
 
     Args:
         file_path: Path to JSONL file (one JSON object per line)
         epochs: Number of times to read through the file
-        default_reward: Default reward value if not specified in data
+        batch_size: Number of trajectories per batch. Defaults to 8.
+                   Batches carry over across epochs.
+        shuffle: Whether to shuffle trajectories. Defaults to True.
+        shuffle_buffer_size: Size of shuffle buffer. Default: 10000.
+                            Only used if shuffle=True.
+        seed: Random seed for deterministic shuffling. Default: 42.
+              Only used if shuffle=True.
 
     Yields:
-        Trajectory objects parsed from the file
+        Batches of Trajectory objects (lists of size batch_size, last batch may be smaller)
 
     Raises:
         ValueError: If file_path does not end with .jsonl
+
+    Example:
+        # With shuffle and batching
+        for batch in iterate_file("data.jsonl", epochs=3, batch_size=8):
+            # batch is a list of 8 trajectories (or fewer for the last batch)
+            process(batch)
+
+        # No shuffle
+        for batch in iterate_file("data.jsonl", epochs=3, batch_size=8, shuffle=False):
+            process(batch)
     """
     from art.trajectories import Trajectory
 
     if not file_path.endswith(".jsonl"):
         raise ValueError(f"Only JSONL files are supported. Got: {file_path}")
 
-    for _ in range(epochs):
-        with open(file_path, "r") as f:
-            for line in f:
-                if not line.strip():
-                    continue
+    # Batch accumulator that carries over across epochs
+    batch: List["Trajectory"] = []
 
-                data = json.loads(line)
+    for epoch in range(epochs):
+        if shuffle and seed is not None:
+            random.seed(seed + epoch)
 
-                # Extract messages and convert to messages_and_choices format
-                messages = data.get("messages", [])
-                tools = data.get("tools", None)
+        if shuffle:
+            # Streaming shuffle with buffer
+            shuffle_buffer: List["Trajectory"] = []
 
-                # Create trajectory
-                yield Trajectory(
-                    messages_and_choices=messages,
-                    tools=tools if tools else None,
-                    reward=0.0
-                )
+            with open(file_path, "r") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+
+                    data = json.loads(line)
+                    messages = data.get("messages", [])
+                    tools = data.get("tools", None)
+
+                    traj = Trajectory(
+                        messages_and_choices=messages,
+                        tools=tools if tools else None,
+                        reward=0.0
+                    )
+
+                    shuffle_buffer.append(traj)
+
+                    # Once buffer is full, start yielding
+                    if len(shuffle_buffer) >= shuffle_buffer_size:
+                        idx = random.randint(0, len(shuffle_buffer) - 1)
+                        batch.append(shuffle_buffer.pop(idx))
+
+                        # Yield batch when it reaches batch_size
+                        if len(batch) == batch_size:
+                            yield batch
+                            batch = []
+
+            # Flush remaining items in shuffle buffer
+            random.shuffle(shuffle_buffer)
+            for traj in shuffle_buffer:
+                batch.append(traj)
+
+                # Yield batch when it reaches batch_size
+                if len(batch) == batch_size:
+                    yield batch
+                    batch = []
+        else:
+            # No shuffle - sequential reading
+            with open(file_path, "r") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+
+                    data = json.loads(line)
+                    messages = data.get("messages", [])
+                    tools = data.get("tools", None)
+
+                    batch.append(Trajectory(
+                        messages_and_choices=messages,
+                        tools=tools if tools else None,
+                        reward=0.0
+                    ))
+
+                    # Yield batch when it reaches batch_size
+                    if len(batch) == batch_size:
+                        yield batch
+                        batch = []
+
+    # Yield any remaining trajectories in the final batch
+    if batch:
+        yield batch
