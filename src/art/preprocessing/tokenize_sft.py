@@ -17,11 +17,13 @@ class SFTBatch:
         trajectory_tensors: List of tensor dictionaries, one per trajectory.
                            Each dict contains 'input_ids', 'attention_mask', and 'labels'.
         learning_rate: Learning rate to use for this batch.
-        num_items_in_batch: Number of trajectories in this batch.
+        num_trajectories: Number of trajectories in this batch.
+        num_trainable_tokens: Total number of tokens being trained on (labels != -100).
     """
     trajectory_tensors: list[dict[str, torch.Tensor]]
     learning_rate: float
-    num_items_in_batch: int
+    num_trajectories: int
+    num_trainable_tokens: int
 
 
 def tokenize_sft_batches(
@@ -45,7 +47,8 @@ def tokenize_sft_batches(
         SFTBatch object containing:
             - trajectory_tensors: List of tensors for each trajectory
             - learning_rate: Learning rate for this batch
-            - num_items_in_batch: Number of trajectories in this batch
+            - num_trajectories: Number of trajectories in this batch
+            - num_trainable_tokens: Total number of trainable tokens
     """
     instruction_ids = tokenizer(instruction_part, add_special_tokens=False).input_ids
     response_ids = tokenizer(response_part, add_special_tokens=False).input_ids
@@ -86,17 +89,16 @@ def tokenize_sft_batches(
             messages = trajectory.messages_and_choices
             tools = trajectory.tools
             
-            formatted_text = tokenizer.apply_chat_template(
+            # Single-step tokenization: apply_chat_template with tokenize=True
+            input_ids = tokenizer.apply_chat_template(
                 messages,
                 tools=tools,
-                tokenize=False,
+                tokenize=True,
                 add_generation_prompt=False
             )
             
-            processed = tokenizer(formatted_text)
-            
-            input_ids = processed['input_ids']
-            attention_mask = processed['attention_mask']
+            # Create attention mask (all 1s - no padding)
+            attention_mask = [1] * len(input_ids)
             
             labels = _train_on_responses_only(input_ids)
             
@@ -108,9 +110,16 @@ def tokenize_sft_batches(
             
             trajectory_tensors.append(trajectory_tensor)
         
+        # Calculate total trainable tokens (labels != -100)
+        num_trainable_tokens = sum(
+            (tensor_dict['labels'] != -100).sum().item()
+            for tensor_dict in trajectory_tensors
+        )
+        
         yield SFTBatch(
             trajectory_tensors=trajectory_tensors,
             learning_rate=lr,
-            num_items_in_batch=len(trajectory_tensors),
+            num_trajectories=len(trajectory_tensors),
+            num_trainable_tokens=num_trainable_tokens,
         )
 
