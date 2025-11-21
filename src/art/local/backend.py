@@ -524,7 +524,7 @@ class LocalBackend(Backend):
     async def _train_sft(
         self,
         model: TrainableModel,
-        trajectories: Iterable[List[Trajectory]],
+        trajectories: Iterable[Trajectory],
         config: SFTConfig,
         dev_config: dev.SFTConfig,
         verbose: bool = False,
