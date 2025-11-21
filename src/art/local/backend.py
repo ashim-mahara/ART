@@ -5,7 +5,7 @@ import os
 import subprocess
 from datetime import datetime
 from types import TracebackType
-from typing import AsyncIterator, Iterable, List, Literal, cast
+from typing import AsyncIterator, Iterable, Literal, cast
 
 import aiohttp
 import numpy as np
