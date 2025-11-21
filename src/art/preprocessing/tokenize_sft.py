@@ -69,11 +69,11 @@ def tokenize_sft_batches(
     response_ids = tokenizer(response_part, add_special_tokens=False).input_ids
     instruction_length = len(instruction_ids)
     response_length = len(response_ids)
-    max_length = max(instruction_length, response_length)
+    max_template_length = max(instruction_length, response_length)
 
     def _train_on_responses_only(input_ids: list[int]) -> list[int]:
         labels = [-100] * len(input_ids)
-        m = len(input_ids) - max_length
+        m = len(input_ids) - max_template_length
         first_response = response_ids[0]
         first_instruction = instruction_ids[0]
         j = 0
@@ -129,17 +129,17 @@ def tokenize_sft_batches(
             })
 
         # Find max length in this batch for padding
-        max_length = max(len(t['input_ids']) for t in tokenized_trajectories)
+        max_seq_length = max(len(t['input_ids']) for t in tokenized_trajectories)
 
-        # Second pass: pad all trajectories to max_length
+        # Second pass: pad all trajectories to max_seq_length
         trajectory_tensors = []
         for tokenized in tokenized_trajectories:
             input_ids = tokenized['input_ids']
             attention_mask = tokenized['attention_mask']
             labels = tokenized['labels']
 
-            # Pad to max_length
-            padding_length = max_length - len(input_ids)
+            # Pad to max_seq_length
+            padding_length = max_seq_length - len(input_ids)
             if padding_length > 0:
                 input_ids = input_ids + [tokenizer.pad_token_id] * padding_length
                 attention_mask = attention_mask + [0] * padding_length
