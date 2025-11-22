@@ -1,16 +1,31 @@
 """Utilities for supervised fine-tuning (SFT)."""
 
 import math
+import random
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generator, List, Literal
 
 if TYPE_CHECKING:
     from art.model import TrainableModel
+    from art.trajectories import Trajectory
+    from art.types import SFTConfig
+
+
+@dataclass
+class SFTDatasetChunk:
+    """Container for SFT dataset chunk with trajectories, config, and step information."""
+
+    trajectories: List["Trajectory"]
+    config: "SFTConfig"
+    step: int
+    epoch: int
+    epoch_step: int
 
 
 def create_lr_schedule(
     total_steps: int,
     peak_lr: float,
-    method: Literal["cosine", "linear", "constant"] = "cosine",
+    method: Literal["cosine", "linear", "constant"] = "linear",
     warmup_steps: int = 0,
     min_lr: float = 0.0,
 ) -> List[float]:
@@ -101,6 +116,148 @@ def iterate_learning_rates(
     """
     for i in range(initial_step, len(learning_rates), chunk_size):
         yield learning_rates[i : i + chunk_size]
+
+
+def create_sft_dataset_iterator(
+    trajectories: List["Trajectory"],
+    epochs: int = 1,
+    batch_size: int = 1,
+    chunk_size: int = 50,
+    peak_lr: float = 2e-4,
+    schedule_type: Literal["cosine", "linear", "constant"] = "linear",
+    warmup_ratio: float = 0.1,
+    initial_step: int = 0,
+) -> Generator[SFTDatasetChunk, None, None]:
+    """
+    Create an iterator that yields SFT dataset chunks with trajectories, config, and step info.
+
+    Combines trajectory batching with learning rate scheduling. Yields SFTDatasetChunk objects
+    containing flattened trajectories, SFTConfig with learning rates, and step tracking info.
+
+    Args:
+        trajectories: List of Trajectory objects to train on
+        epochs: Number of times to iterate over the trajectories. Default: 1
+        batch_size: Number of trajectories per batch. Default: 1
+        chunk_size: Number of batches per chunk. Default: 50
+        peak_lr: Peak learning rate. Default: 5e-5
+        schedule_type: Learning rate schedule type ("cosine", "linear", "constant"). Default: "linear"
+        warmup_ratio: Ratio of total steps to use for warmup (0.0 to 1.0). Default: 0.1
+        initial_step: The global chunk step to start from. Default: 0.
+                      Useful for resuming training.
+
+    Yields:
+        SFTDatasetChunk containing:
+            - trajectories: Flattened list of trajectories (chunk_size * batch_size trajectories)
+            - config: SFTConfig with custom_lr_schedule containing learning rates for each batch
+            - step: Global step number across all epochs
+            - epoch: Current epoch number (0-indexed)
+            - epoch_step: Step number within current epoch (0-indexed)
+
+    Example:
+        trajectories = [traj1, traj2, ..., traj100]
+
+        # Create SFT dataset iterator with linear schedule
+        for chunk in create_sft_dataset_iterator(
+            trajectories=trajectories,
+            epochs=3,
+            batch_size=4,
+            chunk_size=10,
+            peak_lr=1e-4,
+            schedule_type="linear",
+            warmup_ratio=0.1,
+        ):
+            # chunk.trajectories is a flat list of 40 trajectories (10 batches * 4 per batch)
+            # chunk.config.custom_lr_schedule is a list of 10 learning rates (one per batch)
+            # chunk.config.batch_size is 4
+            # chunk.step is global step number
+            # chunk.epoch is current epoch
+            # chunk.epoch_step is step within epoch
+            train_sft(chunk.trajectories, chunk.config)
+
+        # Resume from chunk step 5
+        for chunk in create_sft_dataset_iterator(
+            trajectories=trajectories,
+            epochs=3,
+            batch_size=4,
+            chunk_size=10,
+            initial_step=5,
+        ):
+            # Starts from chunk step 5
+            pass
+    """
+    from art.types import SFTConfig
+
+    dataset_size = len(trajectories)
+    if dataset_size == 0:
+        return
+
+    # Calculate total batch steps (one step per batch)
+    batches_per_epoch = math.ceil(dataset_size / batch_size)
+    total_batch_steps = batches_per_epoch * epochs
+
+    # Calculate warmup steps
+    warmup_steps = int(total_batch_steps * warmup_ratio)
+
+    # Create learning rate schedule (one LR per batch)
+    learning_rates = create_lr_schedule(
+        total_steps=total_batch_steps,
+        peak_lr=peak_lr,
+        method=schedule_type,
+        warmup_steps=warmup_steps,
+        min_lr=0.0,
+    )
+
+    # Calculate chunk iteration parameters
+    items_per_chunk = batch_size * chunk_size
+    chunks_per_epoch = math.ceil(dataset_size / items_per_chunk)
+
+    for epoch in range(epochs):
+        # Create indices and shuffle deterministically based on epoch
+        indices = list(range(dataset_size))
+        random.seed(epoch)
+        random.shuffle(indices)
+
+        for chunk_idx in range(chunks_per_epoch):
+            # Calculate step numbers
+            epoch_step = chunk_idx
+            global_step = epoch * chunks_per_epoch + chunk_idx
+
+            # Skip if before initial_step
+            if global_step < initial_step:
+                continue
+
+            # Get indices for this chunk
+            chunk_start = chunk_idx * items_per_chunk
+            chunk_end = min(chunk_start + items_per_chunk, dataset_size)
+            step_indices = indices[chunk_start:chunk_end]
+
+            # Flatten trajectories for this chunk
+            chunk_trajectories: List["Trajectory"] = [
+                trajectories[idx] for idx in step_indices
+            ]
+
+            # Calculate learning rates for each batch in this chunk
+            chunk_lrs: List[float] = []
+            num_batches_in_chunk = math.ceil(len(step_indices) / batch_size)
+
+            for batch_idx in range(num_batches_in_chunk):
+                # Calculate global batch step
+                global_batch_step = epoch * batches_per_epoch + (chunk_start // batch_size) + batch_idx
+                chunk_lrs.append(learning_rates[global_batch_step])
+
+            # Create SFTConfig with custom learning rate schedule
+            config = SFTConfig(
+                batch_size=batch_size,
+                custom_lr_schedule=chunk_lrs,
+            )
+
+            yield SFTDatasetChunk(
+                trajectories=chunk_trajectories,
+                config=config,
+                step=global_step,
+                epoch=epoch,
+                epoch_step=epoch_step,
+            )
 
 
 async def train_sft_from_file(
