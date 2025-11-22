@@ -126,6 +126,16 @@ class Backend:
             if pbar is not None:
                 pbar.close()
 
+    async def pull_model_checkpoint(
+        self,
+        model: "TrainableModel",
+        destination_path: str,
+        step: int,
+        verbose: bool = False,
+    ) -> None:
+        """Download a model checkpoint from the backend to the local file system."""
+        pass
+
     # ------------------------------------------------------------------
     # Experimental support for S3
     # ------------------------------------------------------------------

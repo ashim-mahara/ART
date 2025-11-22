@@ -2,6 +2,7 @@ import asyncio
 import json
 import math
 import os
+import shutil
 import subprocess
 from datetime import datetime
 from types import TracebackType
@@ -670,6 +671,37 @@ class LocalBackend(Backend):
             os.environ["WEAVE_LOG_LEVEL"] = os.getenv("WEAVE_LOG_LEVEL", "CRITICAL")
             self._weave_clients[model.name] = weave.init(model.project)
         return self._wandb_runs[model.name]
+
+    async def pull_model_checkpoint(
+        self,
+        model: TrainableModel,
+        destination_path: str,
+        step: int,
+        verbose: bool = False,
+    ) -> None:
+        """Download a model checkpoint from the backend to the local file system."""
+        if verbose:
+            print(
+                f"Pulling checkpoint from {model.name} at step {step} to {destination_path}"
+            )
+        checkpoint_dir = get_step_checkpoint_dir(
+            get_model_dir(model=model, art_path=self._path), step
+        )
+        if verbose:
+            print(f"Pulling checkpoint from {checkpoint_dir} to {destination_path}")
+        if not os.path.exists(checkpoint_dir):
+            raise FileNotFoundError(
+                f"Checkpoint directory does not exist: {checkpoint_dir}"
+            )
+        if verbose:
+            print(f"Contents of {checkpoint_dir}: {os.listdir(checkpoint_dir)}")
+            print(f"Contents of {destination_path}: {os.listdir(destination_path)}")
+        shutil.copytree(checkpoint_dir, destination_path)
+        if verbose:
+            print(
+                f"Successfully pulled checkpoint from {checkpoint_dir} to {destination_path}"
+            )
+            print(f"Contents of {destination_path}: {os.listdir(destination_path)}")
 
     # ------------------------------------------------------------------
     # Experimental support for S3
