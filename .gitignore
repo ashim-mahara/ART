@@ -21,3 +21,5 @@ trajectories/
 !/src/art/wandb/
 !/src/art/wandb/**
 /src/art/wandb/__pycache__/
+/ephemeral_resources/*
+/specs/*
