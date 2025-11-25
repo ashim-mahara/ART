@@ -9,6 +9,12 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from ..trajectories import Trajectory
 
+# Import Unsloth Zoo utilities for robust token matching
+# Source: https://github.com/unslothai/unsloth-zoo/blob/main/unsloth_zoo/dataset_utils.py
+# These functions handle edge cases with tokenization (newlines, spaces, etc.)
+import unsloth  # Must import first to set UNSLOTH_IS_PRESENT env var
+from unsloth_zoo.dataset_utils import _find_common_token_ids
+
 
 @dataclass
 class SFTBatch:
@@ -65,36 +71,85 @@ def tokenize_sft_batches(
             f"yields {expected_num_batches} batches, but got {num_learning_rates} learning_rates"
         )
 
-    instruction_ids = tokenizer(instruction_part, add_special_tokens=False).input_ids
-    response_ids = tokenizer(response_part, add_special_tokens=False).input_ids
-    instruction_length = len(instruction_ids)
-    response_length = len(response_ids)
-    max_template_length = max(instruction_length, response_length)
+    # Get most common tokens using Unsloth approach
+    Q_must, Q_left, Q_right = _find_common_token_ids(instruction_part, tokenizer, force_match=False)
+    A_must, A_left, A_right = _find_common_token_ids(response_part, tokenizer, force_match=False)
+    
+    # Store temporary stuff
+    A_first = A_must[0]
+    len_A_must = len(A_must)
+    A_left_reversed = A_left[::-1]
+    A_right_forward = A_right
+    
+    Q_first = Q_must[0]
+    len_Q_must = len(Q_must)
+    Q_left_reversed = Q_left[::-1]
+    Q_right_forward = Q_right
 
     def _train_on_responses_only(input_ids: list[int]) -> list[int]:
-        labels = [-100] * len(input_ids)
-        m = len(input_ids) - max_template_length
-        first_response = response_ids[0]
-        first_instruction = instruction_ids[0]
+        """Unsloth-based implementation for marking trainable tokens."""
+        n = len(input_ids)
+        labels = [-100] * n
+        n_minus_1 = n - 1
         j = 0
-
-        while j < m:
-            if input_ids[j] == first_response:
-                if input_ids[j : j + response_length] == response_ids:
-                    j = j + response_length
-                    start = j
-                    while j < m:
-                        if input_ids[j] == first_instruction and input_ids[j : j + instruction_length] == instruction_ids:
-                            j = j + instruction_length
-                            labels[start : j] = input_ids[start : j]
-                            break
-                        elif j == (m - 1):
-                            j = m
-                            labels[start:] = input_ids[start:]
-                            break
-                        j += 1
+        
+        while j < n:
+            # Find <assistant>
+            if (input_ids[j] == A_first) and \
+                (input_ids[j : (k := j + len_A_must)] == A_must):
+                
+                # Now backtrack to get previous optional tokens
+                for optional_left in A_left_reversed:
+                    if j < 1: break
+                    if optional_left == input_ids[j-1]: j -= 1
+                    else: break
+                
+                # And forwards look as well
+                for optional_right in A_right_forward:
+                    if k >= n_minus_1: break
+                    if optional_right == input_ids[k+1]: k += 1
+                    else: break
+                
+                assistant_k = k
+                j = assistant_k
+                
+                # Given <assistant>, now find next user
+                while j < n:
+                    # Find <user>
+                    # Also accept last final item if assistant is the last turn
+                    if (j == n_minus_1) or \
+                        ((input_ids[j] == Q_first) and \
+                         (input_ids[j : (k := j + len_Q_must)] == Q_must)):
+                        
+                        # Now backtrack to get previous optional tokens
+                        for optional_left in Q_left_reversed:
+                            if j < 1: break
+                            if optional_left == input_ids[j-1]: j -= 1
+                            else: break
+                        
+                        # And forwards look as well
+                        for optional_right in Q_right_forward:
+                            if k >= n_minus_1: break
+                            if optional_right == input_ids[k+1]: k += 1
+                            else: break
+                        
+                        user_j = j
+                        
+                        # Account for last item
+                        if user_j != n_minus_1:
+                            j = k
+                        else:
+                            user_j = n
+                            k = n
+                        
+                        # Now copy input_ids to labels
+                        labels[assistant_k : user_j] = input_ids[assistant_k : user_j]
+                        break
+                    
+                    j += 1
+            
             j += 1
-
+        
         return labels
 
     # Batch trajectories
