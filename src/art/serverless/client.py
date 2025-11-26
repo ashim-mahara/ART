@@ -51,7 +51,12 @@ class DeleteCheckpointsResponse(BaseModel):
 
 class ExperimentalTrainingConfig(TypedDict, total=False):
     advantage_balance: float | None
+    epsilon: float | None
+    epsilon_high: float | None
+    importance_sampling_level: Literal["token", "sequence"] | None
     learning_rate: float | None
+    max_negative_advantage_importance_sampling_weight: float | None
+    ppo: bool | None
     precalculate_logprobs: bool | None
     scale_rewards: bool | None
 

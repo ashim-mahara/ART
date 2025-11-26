@@ -150,7 +150,12 @@ class ServerlessBackend(Backend):
             trajectory_groups=trajectory_groups,
             experimental_config=ExperimentalTrainingConfig(
                 advantage_balance=dev_config.get("advantage_balance"),
+                epsilon=dev_config.get("epsilon"),
+                epsilon_high=dev_config.get("epsilon_high"),
+                importance_sampling_level=dev_config.get("importance_sampling_level"),
                 learning_rate=config.learning_rate,
+                max_negative_advantage_importance_sampling_weight=dev_config.get("max_negative_advantage_importance_sampling_weight"),
+                ppo=dev_config.get("ppo"),
                 precalculate_logprobs=dev_config.get("precalculate_logprobs"),
                 scale_rewards=dev_config.get("scale_rewards"),
             ),
