@@ -126,6 +126,31 @@ def run(host: str = "0.0.0.0", port: int = 7999) -> None:
             delete=delete,
         )
 
+    @app.post("/_experimental_pull_model_checkpoint")
+    async def _experimental_pull_model_checkpoint(
+        model: TrainableModel = Body(...),
+        step: int | str | None = Body(None),
+        local_path: str | None = Body(None),
+        verbose: bool = Body(False),
+        s3_bucket: str | None = Body(None),
+        prefix: str | None = Body(None),
+    ):
+        # Build kwargs for backend-specific parameters
+        kwargs = {}
+        if s3_bucket is not None:
+            kwargs["s3_bucket"] = s3_bucket
+        if prefix is not None:
+            kwargs["prefix"] = prefix
+
+        checkpoint_path = await backend._experimental_pull_model_checkpoint(
+            model=model,
+            step=step,
+            local_path=local_path,
+            verbose=verbose,
+            **kwargs,
+        )
+        return {"checkpoint_path": checkpoint_path}
+
     @app.post("/_experimental_deploy")
     async def _experimental_deploy(
         deploy_to: LoRADeploymentProvider = Body(...),
@@ -134,7 +159,7 @@ def run(host: str = "0.0.0.0", port: int = 7999) -> None:
         s3_bucket: str | None = Body(None),
         prefix: str | None = Body(None),
         verbose: bool = Body(False),
-        pull_s3: bool = Body(True),
+        pull_checkpoint: bool = Body(True),
         wait_for_completion: bool = Body(True),
     ):
         return await backend._experimental_deploy(
@@ -144,7 +169,7 @@ def run(host: str = "0.0.0.0", port: int = 7999) -> None:
             s3_bucket=s3_bucket,
             prefix=prefix,
             verbose=verbose,
-            pull_s3=pull_s3,
+            pull_checkpoint=pull_checkpoint,
             wait_for_completion=wait_for_completion,
         )
 

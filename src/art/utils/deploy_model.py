@@ -210,38 +210,39 @@ async def wait_for_together_job(
 async def deploy_model(
     deploy_to: LoRADeploymentProvider,
     model: "TrainableModel",
-    step: int | None = None,
+    checkpoint_path: str,
+    step: int,
     s3_bucket: str | None = None,
     prefix: str | None = None,
     verbose: bool = False,
-    pull_s3: bool = True,
     wait_for_completion: bool = True,
-    art_path: str | None = get_default_art_path(),
 ) -> LoRADeploymentJob:
     """
-    Deploy the model's latest checkpoint to a hosted inference endpoint.
+    Deploy a model checkpoint from a local path to a hosted inference endpoint.
+
+    This function assumes the checkpoint is already available locally. Use
+    Backend.pull_model_checkpoint() to download checkpoints first.
 
     Together is currently the only supported provider. See link for supported base models:
     https://docs.together.ai/docs/lora-inference#supported-base-models
+
+    Args:
+        deploy_to: The deployment provider (e.g., LoRADeploymentProvider.TOGETHER).
+        model: The TrainableModel to deploy.
+        checkpoint_path: Local path to the checkpoint directory.
+        step: The step number of the checkpoint.
+        s3_bucket: S3 bucket to upload the checkpoint archive to (for presigned URL).
+        prefix: S3 prefix.
+        verbose: Whether to print verbose output.
+        wait_for_completion: Whether to wait for deployment to complete.
+
+    Returns:
+        LoRADeploymentJob with status information.
     """
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
 
-    art_path = art_path or get_default_art_path()
-    os.makedirs(art_path, exist_ok=True)
-    if pull_s3:
-        # pull the latest step from S3
-        await pull_model_from_s3(
-            model_name=model.name,
-            project=model.project,
-            step=step,
-            s3_bucket=s3_bucket,
-            prefix=prefix,
-            verbose=verbose,
-            art_path=art_path,
-        )
-
-    if step is None:
-        step = get_model_step(model, art_path)
-
+    # Use the checkpoint_path directly instead of trying to reconstruct it
     presigned_url = await archive_and_presign_step_url(
         model_name=model.name,
         project=model.project,
@@ -249,7 +250,7 @@ async def deploy_model(
         s3_bucket=s3_bucket,
         prefix=prefix,
         verbose=verbose,
-        art_path=art_path,
+        checkpoint_path=checkpoint_path,
     )
 
     if deploy_to == LoRADeploymentProvider.TOGETHER:

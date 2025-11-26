@@ -675,6 +675,148 @@ class LocalBackend(Backend):
     # Experimental support for S3
     # ------------------------------------------------------------------
 
+    async def _experimental_pull_model_checkpoint(
+        self,
+        model: "TrainableModel",
+        *,
+        step: int | Literal["latest"] | None = None,
+        local_path: str | None = None,
+        s3_bucket: str | None = None,
+        prefix: str | None = None,
+        verbose: bool = False,
+    ) -> str:
+        """Pull a model checkpoint to a local path.
+
+        For LocalBackend, this:
+        1. Checks if checkpoint exists in the original training location (self._path)
+        2. If exists and local_path is provided, copies it to the custom location
+        3. If doesn't exist and s3_bucket is provided, pulls from S3
+        4. Returns the final checkpoint path
+
+        Args:
+            model: The model to pull checkpoint for.
+            step: The step to pull. Can be an int for a specific step,
+                 or "latest" to pull the latest checkpoint. If None, pulls latest.
+            local_path: Custom directory to save/copy the checkpoint to.
+                       If None, returns checkpoint from backend's default art path.
+            s3_bucket: S3 bucket to pull from if checkpoint doesn't exist locally.
+            prefix: S3 prefix.
+            verbose: Whether to print verbose output.
+
+        Returns:
+            Path to the local checkpoint directory.
+        """
+        # Determine which step to use
+        resolved_step: int
+        if step is None or step == "latest":
+            if s3_bucket is not None:
+                # Get latest from S3
+                from art.utils.s3_checkpoint_utils import (
+                    get_latest_checkpoint_step_from_s3,
+                )
+
+                latest_step = await get_latest_checkpoint_step_from_s3(
+                    model_name=model.name,
+                    project=model.project,
+                    s3_bucket=s3_bucket,
+                    prefix=prefix,
+                )
+                if latest_step is None:
+                    raise ValueError(
+                        f"No checkpoints found in S3 for {model.project}/{model.name}"
+                    )
+                resolved_step = latest_step
+            else:
+                # Get latest from default training location
+                resolved_step = get_model_step(model, self._path)
+        else:
+            resolved_step = step
+
+        # Check if checkpoint exists in the original training location
+        original_checkpoint_dir = get_step_checkpoint_dir(
+            get_model_dir(model=model, art_path=self._path), resolved_step
+        )
+
+        # Check if checkpoint exists in original location
+        if os.path.exists(original_checkpoint_dir):
+            if local_path is not None:
+                # Copy from original location to custom location
+                target_checkpoint_dir = os.path.join(local_path, f"{resolved_step:04d}")
+                if os.path.exists(target_checkpoint_dir):
+                    if verbose:
+                        print(
+                            f"Checkpoint already exists at target location: {target_checkpoint_dir}"
+                        )
+                    return target_checkpoint_dir
+                else:
+                    if verbose:
+                        print(
+                            f"Copying checkpoint from {original_checkpoint_dir} to {target_checkpoint_dir}..."
+                        )
+                    import shutil
+
+                    os.makedirs(os.path.dirname(target_checkpoint_dir), exist_ok=True)
+                    shutil.copytree(original_checkpoint_dir, target_checkpoint_dir)
+                    if verbose:
+                        print(f"✓ Checkpoint copied successfully")
+                    return target_checkpoint_dir
+            else:
+                # No custom location, return original
+                if verbose:
+                    print(
+                        f"Checkpoint step {resolved_step} exists at {original_checkpoint_dir}"
+                    )
+                return original_checkpoint_dir
+        else:
+            # Checkpoint doesn't exist in original location, try S3
+            if s3_bucket is None:
+                raise FileNotFoundError(
+                    f"Checkpoint not found at {original_checkpoint_dir} and no S3 bucket specified"
+                )
+            # Pull from S3
+            if verbose:
+                print(f"Pulling checkpoint step {resolved_step} from S3...")
+
+            if local_path is not None:
+                # Pull to custom location, then copy to flat structure
+                # First pull to default structure
+                await pull_model_from_s3(
+                    model_name=model.name,
+                    project=model.project,
+                    step=resolved_step,
+                    s3_bucket=s3_bucket,
+                    prefix=prefix,
+                    verbose=verbose,
+                    art_path=self._path,
+                    exclude=["logs", "trajectories"],
+                )
+                # Now copy to custom flat location
+                target_checkpoint_dir = os.path.join(local_path, f"{resolved_step:04d}")
+                if verbose:
+                    print(
+                        f"Copying checkpoint from {original_checkpoint_dir} to {target_checkpoint_dir}..."
+                    )
+                import shutil
+
+                os.makedirs(os.path.dirname(target_checkpoint_dir), exist_ok=True)
+                shutil.copytree(original_checkpoint_dir, target_checkpoint_dir)
+                if verbose:
+                    print(f"✓ Checkpoint copied to custom location")
+                return target_checkpoint_dir
+            else:
+                # Pull to default location
+                await pull_model_from_s3(
+                    model_name=model.name,
+                    project=model.project,
+                    step=resolved_step,
+                    s3_bucket=s3_bucket,
+                    prefix=prefix,
+                    verbose=verbose,
+                    art_path=self._path,
+                    exclude=["logs", "trajectories"],
+                )
+                return original_checkpoint_dir
+
     async def _experimental_pull_from_s3(
         self,
         model: Model,
@@ -950,7 +1092,7 @@ class LocalBackend(Backend):
         s3_bucket: str | None = None,
         prefix: str | None = None,
         verbose: bool = False,
-        pull_s3: bool = True,
+        pull_checkpoint: bool = True,
         wait_for_completion: bool = True,
     ) -> LoRADeploymentJob:
         """
@@ -958,15 +1100,45 @@ class LocalBackend(Backend):
 
         Together is currently the only supported provider. See link for supported base models:
         https://docs.together.ai/docs/lora-inference#supported-base-models
+
+        Args:
+            deploy_to: The deployment provider.
+            model: The model to deploy.
+            step: The checkpoint step to deploy. If None, deploys latest.
+            s3_bucket: S3 bucket for checkpoint storage and presigned URL.
+            prefix: S3 prefix.
+            verbose: Whether to print verbose output.
+            pull_checkpoint: Whether to pull the checkpoint first (from S3 if needed).
+            wait_for_completion: Whether to wait for deployment to complete.
         """
+        # Step 1: Pull checkpoint to local path if needed
+        if pull_checkpoint:
+            checkpoint_path = await self._experimental_pull_model_checkpoint(
+                model,
+                step=step,
+                s3_bucket=s3_bucket,
+                prefix=prefix,
+                verbose=verbose,
+            )
+            # Extract step from checkpoint path if not provided
+            if step is None:
+                step = int(os.path.basename(checkpoint_path))
+        else:
+            # Checkpoint should already exist locally
+            if step is None:
+                step = get_model_step(model, self._path)
+            checkpoint_path = get_step_checkpoint_dir(
+                get_model_dir(model=model, art_path=self._path), step
+            )
+
+        # Step 2: Deploy from local checkpoint
         return await deploy_model(
             deploy_to=deploy_to,
             model=model,
+            checkpoint_path=checkpoint_path,
             step=step,
             s3_bucket=s3_bucket,
             prefix=prefix,
             verbose=verbose,
-            pull_s3=pull_s3,
             wait_for_completion=wait_for_completion,
-            art_path=self._path,
         )

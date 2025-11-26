@@ -115,6 +115,12 @@ class Models(AsyncAPIResource):
             cast_to=type(None),
         )
 
+    async def delete(self, *, model_id: str) -> None:
+        return await self._delete(
+            f"/preview/models/{model_id}",
+            cast_to=type(None),
+        )
+
     @cached_property
     def checkpoints(self) -> "Checkpoints":
         return Checkpoints(cast(AsyncOpenAI, self._client))
