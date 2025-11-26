@@ -35,6 +35,12 @@ from .backend import Backend
 from .batches import trajectory_group_batches
 from .gather import gather_trajectories, gather_trajectory_groups
 from .model import Model, TrainableModel
+from .storage import (
+    CheckpointStorage,
+    LocalCheckpointStorage,
+    S3CheckpointStorage,
+    WandBArtifactStorage,
+)
 from .trajectories import Trajectory, TrajectoryGroup
 from .types import Messages, MessagesAndChoices, Tools, TrainConfig
 from .utils import retry
@@ -48,6 +54,10 @@ __all__ = [
     "gather_trajectory_groups",
     "trajectory_group_batches",
     "Backend",
+    "CheckpointStorage",
+    "LocalCheckpointStorage",
+    "S3CheckpointStorage",
+    "WandBArtifactStorage",
     "Messages",
     "MessagesAndChoices",
     "Tools",

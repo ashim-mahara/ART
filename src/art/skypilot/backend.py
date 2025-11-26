@@ -10,6 +10,7 @@ from dotenv import dotenv_values
 
 from .. import dev
 from ..backend import Backend
+from ..storage import S3CheckpointStorage
 from .utils import (
     get_art_server_base_url,
     get_task_job_id,
@@ -192,7 +193,7 @@ class SkyPilotBackend(Backend):
 
         if art_version_is_semver:
             art_installation_command = (
-                f"uv pip install openpipe-art[backend]=={art_version}"
+                f"uv pip install --system openpipe-art[backend]=={art_version}"
             )
         elif os.path.exists(art_version):
             # copy the contents of the art_path onto the new machine
@@ -274,9 +275,8 @@ class SkyPilotBackend(Backend):
         *,
         step: int | Literal["latest"] | None = None,
         local_path: str | None = None,
-        s3_bucket: str | None = None,
-        prefix: str | None = None,
         verbose: bool = False,
+        storage: S3CheckpointStorage,
     ) -> str:
         """Pull a model checkpoint to the client machine.
 
@@ -288,9 +288,8 @@ class SkyPilotBackend(Backend):
             step: The step to pull. Can be an int for a specific step,
                  or "latest" to pull the latest checkpoint. If None, pulls latest.
             local_path: Local directory to save the checkpoint. If None, uses default paths.
-            s3_bucket: S3 bucket to pull from (required).
-            prefix: S3 prefix.
             verbose: Whether to print verbose output.
+            storage: The S3 checkpoint storage configuration (bucket, prefix).
 
         Returns:
             Path to the local checkpoint directory on the client machine.
@@ -303,23 +302,12 @@ class SkyPilotBackend(Backend):
             get_step_checkpoint_dir,
         )
         from art.utils.s3 import pull_model_from_s3
-        from art.utils.s3_checkpoint_utils import get_latest_checkpoint_step_from_s3
-
-        if s3_bucket is None:
-            raise ValueError(
-                "s3_bucket is required for SkyPilotBackend.pull_model_checkpoint()"
-            )
 
         # Determine which step to use
         resolved_step: int
         if step is None or step == "latest":
             # Get latest from S3
-            latest_step = await get_latest_checkpoint_step_from_s3(
-                model_name=model.name,
-                project=model.project,
-                s3_bucket=s3_bucket,
-                prefix=prefix,
-            )
+            latest_step = await storage.get_latest_step(model)
             if latest_step is None:
                 raise ValueError(
                     f"No checkpoints found in S3 for {model.project}/{model.name}"
@@ -361,8 +349,8 @@ class SkyPilotBackend(Backend):
                 model_name=model.name,
                 project=model.project,
                 step=resolved_step,
-                s3_bucket=s3_bucket,
-                prefix=prefix,
+                s3_bucket=storage.bucket,
+                prefix=storage.prefix,
                 verbose=verbose,
                 art_path=temp_art_path,
                 exclude=["logs", "trajectories"],
@@ -383,8 +371,8 @@ class SkyPilotBackend(Backend):
                 model_name=model.name,
                 project=model.project,
                 step=resolved_step,
-                s3_bucket=s3_bucket,
-                prefix=prefix,
+                s3_bucket=storage.bucket,
+                prefix=storage.prefix,
                 verbose=verbose,
                 art_path=pull_art_path,
                 exclude=["logs", "trajectories"],

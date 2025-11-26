@@ -1,9 +1,10 @@
 import json
-from typing import TYPE_CHECKING, Any, AsyncIterator, Literal
+from typing import TYPE_CHECKING, AsyncIterator, Literal
 
 import httpx
 from tqdm import auto as tqdm
 
+from art.storage import CheckpointStorage
 from art.utils import log_http_errors
 from art.utils.deploy_model import LoRADeploymentJob, LoRADeploymentProvider
 
@@ -127,7 +128,7 @@ class Backend:
                 pbar.close()
 
     # ------------------------------------------------------------------
-    # Experimental support for S3
+    # Experimental support for checkpoint storage
     # ------------------------------------------------------------------
 
     @log_http_errors
@@ -138,13 +139,15 @@ class Backend:
         step: int | Literal["latest"] | None = None,
         local_path: str | None = None,
         verbose: bool = False,
-        **kwargs: Any,
+        storage: CheckpointStorage | None = None,
     ) -> str:
         """Pull a model checkpoint to a local path.
 
         This method downloads a specific checkpoint from the backend's storage
-        (S3 for LocalBackend/SkyPilot, W&B artifacts for ServerlessBackend)
-        to a local directory.
+        to a local directory. Each backend uses its appropriate storage type:
+        - LocalBackend: LocalCheckpointStorage (default: uses backend's art_path)
+        - ServerlessBackend: WandBArtifactStorage (default: uses client's API key)
+        - SkyPilotBackend: S3CheckpointStorage (required)
 
         Args:
             model: The model to pull checkpoint for.
@@ -152,9 +155,7 @@ class Backend:
                  or "latest" to pull the latest checkpoint. If None, pulls latest.
             local_path: Local directory to save the checkpoint. If None, uses default art path.
             verbose: Whether to print verbose output.
-            **kwargs: Backend-specific parameters:
-                - s3_bucket (str | None): S3 bucket to pull from (LocalBackend/SkyPilotBackend)
-                - prefix (str | None): S3 prefix (LocalBackend/SkyPilotBackend)
+            storage: The checkpoint storage configuration. Type depends on backend.
 
         Returns:
             Path to the local checkpoint directory.
@@ -166,7 +167,6 @@ class Backend:
                 "step": step,
                 "local_path": local_path,
                 "verbose": verbose,
-                **kwargs,
             },
             timeout=600,
         )

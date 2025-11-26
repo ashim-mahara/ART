@@ -1,10 +1,11 @@
 import asyncio
-from typing import TYPE_CHECKING, Any, AsyncIterator, Literal
+from typing import TYPE_CHECKING, AsyncIterator, Literal
 
 from openai._types import NOT_GIVEN
 from tqdm import auto as tqdm
 
 from art.serverless.client import Client, ExperimentalTrainingConfig
+from art.storage import WandBArtifactStorage
 from art.utils.deploy_model import LoRADeploymentJob, LoRADeploymentProvider
 
 from .. import dev
@@ -182,7 +183,7 @@ class ServerlessBackend(Backend):
                 after = event.id
 
     # ------------------------------------------------------------------
-    # Experimental support for S3 and checkpoints
+    # Experimental support for checkpoints
     # ------------------------------------------------------------------
 
     async def _experimental_pull_model_checkpoint(
@@ -192,6 +193,7 @@ class ServerlessBackend(Backend):
         step: int | Literal["latest"] | None = None,
         local_path: str | None = None,
         verbose: bool = False,
+        storage: WandBArtifactStorage | None = None,
     ) -> str:
         """Pull a model checkpoint from W&B artifacts to a local path.
 
@@ -203,6 +205,7 @@ class ServerlessBackend(Backend):
                  or "latest" to pull the latest checkpoint. If None, pulls latest.
             local_path: Local directory to save the checkpoint. If None, uses temporary directory.
             verbose: Whether to print verbose output.
+            storage: The W&B artifact storage configuration. If None, uses default with client's API key.
 
         Returns:
             Path to the local checkpoint directory.
@@ -210,10 +213,11 @@ class ServerlessBackend(Backend):
         import os
         import tempfile
 
-        import wandb
-
         assert model.id is not None, "Model ID is required"
         assert model.entity is not None, "Model entity is required"
+
+        if storage is None:
+            storage = WandBArtifactStorage(api_key=self._client.api_key)
 
         # Determine which step to use
         resolved_step: int
@@ -229,17 +233,6 @@ class ServerlessBackend(Backend):
         else:
             resolved_step = step
 
-        if verbose:
-            print(f"Downloading checkpoint step {resolved_step} from W&B artifacts...")
-
-        # Download from W&B artifacts
-        # The artifact name follows the pattern: {entity}/{project}/{model_name}:v{step}
-        artifact_name = f"{model.entity}/{model.project}/{model.name}:v{resolved_step}"
-
-        # Use wandb API to download
-        api = wandb.Api(api_key=self._client.api_key)
-        artifact = api.artifact(artifact_name, type="lora")
-
         # Determine download path
         if local_path is None:
             # Create a temporary directory that won't be cleaned up automatically
@@ -247,18 +240,8 @@ class ServerlessBackend(Backend):
                 tempfile.gettempdir(), "art_checkpoints", model.project, model.name
             )
 
-        checkpoint_dir = os.path.join(local_path, f"{resolved_step:04d}")
-
-        # Download artifact
-        if not os.path.exists(checkpoint_dir):
-            os.makedirs(os.path.dirname(checkpoint_dir), exist_ok=True)
-            artifact.download(root=checkpoint_dir)
-            if verbose:
-                print(f"Downloaded checkpoint to {checkpoint_dir}")
-        elif verbose:
-            print(f"Checkpoint already exists at {checkpoint_dir}")
-
-        return checkpoint_dir
+        # Use storage provider to pull checkpoint
+        return await storage.pull_checkpoint(model, resolved_step, local_path, verbose)
 
     async def _experimental_pull_from_s3(
         self,
