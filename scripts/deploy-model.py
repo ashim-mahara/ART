@@ -5,8 +5,9 @@ import os
 from dotenv import load_dotenv
 
 import art
-from art.utils.deploy_model import deploy_model
+from art.utils.deploy_model import LoRADeploymentProvider, deploy_model
 from art.utils.get_model_step import get_model_step
+from art.utils.output_dirs import get_model_dir, get_step_checkpoint_dir
 from art.utils.s3 import pull_model_from_s3
 
 load_dotenv()
@@ -86,14 +87,19 @@ async def deploy() -> None:
         f"using checkpoints from s3://{backup_bucket}…"
     )
 
+    # Construct the checkpoint path from the pulled model
+    checkpoint_path = get_step_checkpoint_dir(
+        get_model_dir(model=model, art_path=args.art_path), step
+    )
+
     deployment_result = await deploy_model(
-        deploy_to="together",
+        deploy_to=LoRADeploymentProvider.TOGETHER,
         model=model,
+        checkpoint_path=checkpoint_path,
         step=step,
+        s3_bucket=backup_bucket,
         verbose=True,
-        pull_s3=False,
         wait_for_completion=True,
-        art_path=args.art_path,
     )
 
     if deployment_result.status == "Failed":

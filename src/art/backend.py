@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING, AsyncIterator, Literal
+from typing import TYPE_CHECKING, Any, AsyncIterator, Literal
 
 import httpx
 from tqdm import auto as tqdm
@@ -131,6 +131,49 @@ class Backend:
     # ------------------------------------------------------------------
 
     @log_http_errors
+    async def _experimental_pull_model_checkpoint(
+        self,
+        model: "TrainableModel",
+        *,
+        step: int | Literal["latest"] | None = None,
+        local_path: str | None = None,
+        verbose: bool = False,
+        **kwargs: Any,
+    ) -> str:
+        """Pull a model checkpoint to a local path.
+
+        This method downloads a specific checkpoint from the backend's storage
+        (S3 for LocalBackend/SkyPilot, W&B artifacts for ServerlessBackend)
+        to a local directory.
+
+        Args:
+            model: The model to pull checkpoint for.
+            step: The step to pull. Can be an int for a specific step,
+                 or "latest" to pull the latest checkpoint. If None, pulls latest.
+            local_path: Local directory to save the checkpoint. If None, uses default art path.
+            verbose: Whether to print verbose output.
+            **kwargs: Backend-specific parameters:
+                - s3_bucket (str | None): S3 bucket to pull from (LocalBackend/SkyPilotBackend)
+                - prefix (str | None): S3 prefix (LocalBackend/SkyPilotBackend)
+
+        Returns:
+            Path to the local checkpoint directory.
+        """
+        response = await self._client.post(
+            "/_experimental_pull_model_checkpoint",
+            json={
+                "model": model.safe_model_dump(),
+                "step": step,
+                "local_path": local_path,
+                "verbose": verbose,
+                **kwargs,
+            },
+            timeout=600,
+        )
+        response.raise_for_status()
+        return response.json()["checkpoint_path"]
+
+    @log_http_errors
     async def _experimental_pull_from_s3(
         self,
         model: "Model",
@@ -233,7 +276,7 @@ class Backend:
         s3_bucket: str | None = None,
         prefix: str | None = None,
         verbose: bool = False,
-        pull_s3: bool = True,
+        pull_checkpoint: bool = True,
         wait_for_completion: bool = True,
     ) -> LoRADeploymentJob:
         """
@@ -251,7 +294,7 @@ class Backend:
                 "s3_bucket": s3_bucket,
                 "prefix": prefix,
                 "verbose": verbose,
-                "pull_s3": pull_s3,
+                "pull_checkpoint": pull_checkpoint,
                 "wait_for_completion": wait_for_completion,
             },
             timeout=600,

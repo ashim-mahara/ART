@@ -268,16 +268,32 @@ async def archive_and_presign_step_url(
     verbose: bool = False,
     delete: bool = False,
     art_path: str | None = None,
+    checkpoint_path: str | None = None,
 ) -> str:
-    """Get a presigned URL for a step in a model."""
-    model_output_dir = get_output_dir_from_model_properties(
-        project=project,
-        name=model_name,
-        art_path=art_path,
-    )
-    local_step_dir = get_step_checkpoint_dir(model_output_dir, step)
-    if not os.path.exists(local_step_dir):
-        raise ValueError(f"Local step directory does not exist: {local_step_dir}")
+    """Get a presigned URL for a step in a model.
+
+    Args:
+        model_name: Name of the model.
+        project: Project name.
+        step: Step number.
+        s3_bucket: S3 bucket to upload to.
+        prefix: S3 prefix.
+        verbose: Whether to print verbose output.
+        delete: Whether to delete after upload.
+        art_path: Path to ART directory (used if checkpoint_path not provided).
+        checkpoint_path: Direct path to the checkpoint directory. If provided, uses this
+                       instead of constructing from art_path.
+    """
+    if checkpoint_path is None:
+        model_output_dir = get_output_dir_from_model_properties(
+            project=project,
+            name=model_name,
+            art_path=art_path,
+        )
+        checkpoint_path = get_step_checkpoint_dir(model_output_dir, step)
+
+    if not os.path.exists(checkpoint_path):
+        raise ValueError(f"Local step directory does not exist: {checkpoint_path}")
 
     s3_step_path = build_s3_zipped_step_path(
         model_name=model_name,
@@ -292,11 +308,11 @@ async def archive_and_presign_step_url(
         # Create zip archive
         archive_path = os.path.join(temp_dir, "model.zip")
         with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for root, _, files in os.walk(local_step_dir):
+            for root, _, files in os.walk(checkpoint_path):
                 for file in files:
                     file_path = os.path.join(root, file)
                     # Add file to zip with relative path
-                    arcname = os.path.relpath(file_path, local_step_dir)
+                    arcname = os.path.relpath(file_path, checkpoint_path)
                     zipf.write(file_path, arcname)
 
         await ensure_bucket_exists(s3_bucket)

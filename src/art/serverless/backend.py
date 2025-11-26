@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING, AsyncIterator, Literal
+from typing import TYPE_CHECKING, Any, AsyncIterator, Literal
 
 from openai._types import NOT_GIVEN
 from tqdm import auto as tqdm
@@ -53,6 +53,26 @@ class ServerlessBackend(Backend):
         )
         model.id = client_model.id
         model.entity = client_model.entity
+
+    async def delete(
+        self,
+        model: "Model",
+    ) -> None:
+        """
+        Deletes a model from the Backend.
+
+        Args:
+            model: An art.Model instance to delete.
+        """
+        from art import TrainableModel
+
+        if not isinstance(model, TrainableModel):
+            print(
+                "Deleting a non-trainable model from the Serverless backend is not supported."
+            )
+            return
+        assert model.id is not None, "Model ID is required"
+        await self._client.models.delete(model_id=model.id)
 
     def _model_inference_name(self, model: "TrainableModel") -> str:
         assert model.entity is not None, "Model entity is required"
@@ -167,8 +187,83 @@ class ServerlessBackend(Backend):
                 after = event.id
 
     # ------------------------------------------------------------------
-    # Experimental support for S3
+    # Experimental support for S3 and checkpoints
     # ------------------------------------------------------------------
+
+    async def _experimental_pull_model_checkpoint(
+        self,
+        model: "TrainableModel",
+        *,
+        step: int | Literal["latest"] | None = None,
+        local_path: str | None = None,
+        verbose: bool = False,
+    ) -> str:
+        """Pull a model checkpoint from W&B artifacts to a local path.
+
+        For ServerlessBackend, this downloads the checkpoint from W&B artifact storage.
+
+        Args:
+            model: The model to pull checkpoint for.
+            step: The step to pull. Can be an int for a specific step,
+                 or "latest" to pull the latest checkpoint. If None, pulls latest.
+            local_path: Local directory to save the checkpoint. If None, uses temporary directory.
+            verbose: Whether to print verbose output.
+
+        Returns:
+            Path to the local checkpoint directory.
+        """
+        import os
+        import tempfile
+
+        import wandb
+
+        assert model.id is not None, "Model ID is required"
+        assert model.entity is not None, "Model entity is required"
+
+        # Determine which step to use
+        resolved_step: int
+        if step is None or step == "latest":
+            # Get latest checkpoint from API
+            async for checkpoint in self._client.models.checkpoints.list(
+                limit=1, order="desc", model_id=model.id
+            ):
+                resolved_step = checkpoint.step
+                break
+            else:
+                raise ValueError(f"No checkpoints found for model {model.name}")
+        else:
+            resolved_step = step
+
+        if verbose:
+            print(f"Downloading checkpoint step {resolved_step} from W&B artifacts...")
+
+        # Download from W&B artifacts
+        # The artifact name follows the pattern: {entity}/{project}/{model_name}:v{step}
+        artifact_name = f"{model.entity}/{model.project}/{model.name}:v{resolved_step}"
+
+        # Use wandb API to download
+        api = wandb.Api(api_key=self._client.api_key)
+        artifact = api.artifact(artifact_name, type="lora")
+
+        # Determine download path
+        if local_path is None:
+            # Create a temporary directory that won't be cleaned up automatically
+            local_path = os.path.join(
+                tempfile.gettempdir(), "art_checkpoints", model.project, model.name
+            )
+
+        checkpoint_dir = os.path.join(local_path, f"{resolved_step:04d}")
+
+        # Download artifact
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(os.path.dirname(checkpoint_dir), exist_ok=True)
+            artifact.download(root=checkpoint_dir)
+            if verbose:
+                print(f"Downloaded checkpoint to {checkpoint_dir}")
+        elif verbose:
+            print(f"Checkpoint already exists at {checkpoint_dir}")
+
+        return checkpoint_dir
 
     async def _experimental_pull_from_s3(
         self,
@@ -213,7 +308,7 @@ class ServerlessBackend(Backend):
         s3_bucket: str | None = None,
         prefix: str | None = None,
         verbose: bool = False,
-        pull_s3: bool = True,
+        pull_checkpoint: bool = True,
         wait_for_completion: bool = True,
     ) -> LoRADeploymentJob:
         raise NotImplementedError
