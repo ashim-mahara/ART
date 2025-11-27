@@ -54,7 +54,7 @@ class ExperimentalTrainingConfig(TypedDict, total=False):
     epsilon: float | None
     epsilon_high: float | None
     importance_sampling_level: (
-        Literal["token", "sequence", "average", "harmonic_average"] | None
+        Literal["token", "sequence", "average", "geometric_average"] | None
     )
     learning_rate: float | None
     max_negative_advantage_importance_sampling_weight: float | None
