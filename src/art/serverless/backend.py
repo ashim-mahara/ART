@@ -199,6 +199,7 @@ class ServerlessBackend(Backend):
         step: int | Literal["latest"] | None = None,
         local_path: str | None = None,
         verbose: bool = False,
+        **kwargs: Any,
     ) -> str:
         """Pull a model checkpoint from W&B artifacts to a local path.
 

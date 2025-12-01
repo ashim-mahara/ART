@@ -1,7 +1,7 @@
 import asyncio
 import os
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import semver
 import sky
@@ -277,6 +277,7 @@ class SkyPilotBackend(Backend):
         s3_bucket: str | None = None,
         prefix: str | None = None,
         verbose: bool = False,
+        **kwargs: Any,
     ) -> str:
         """Pull a model checkpoint to the client machine.
 

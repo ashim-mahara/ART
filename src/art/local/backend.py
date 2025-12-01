@@ -5,7 +5,7 @@ import os
 import subprocess
 from datetime import datetime
 from types import TracebackType
-from typing import AsyncIterator, Literal, cast
+from typing import Any, AsyncIterator, Literal, cast
 
 import aiohttp
 import numpy as np
@@ -684,6 +684,7 @@ class LocalBackend(Backend):
         s3_bucket: str | None = None,
         prefix: str | None = None,
         verbose: bool = False,
+        **kwargs: Any,
     ) -> str:
         """Pull a model checkpoint to a local path.
 

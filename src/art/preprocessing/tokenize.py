@@ -2,7 +2,7 @@ import math
 import random
 from dataclasses import dataclass
 from itertools import takewhile
-from typing import Generator, cast
+from typing import Any, Generator, cast
 
 import torch
 from PIL import Image
@@ -154,7 +154,7 @@ def tokenize_trajectory(
         return None
     messages_and_choices = history.messages_and_choices[: last_assistant_index + 1]
     messages = get_messages(messages_and_choices)
-    tools = (
+    tools: Any = (
         [{"type": "function", "function": tool} for tool in history.tools]
         if history.tools is not None
         else None
