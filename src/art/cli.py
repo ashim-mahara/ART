@@ -1,6 +1,6 @@
 import json
 import socket
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Literal
 
 import pydantic
 import typer
@@ -129,7 +129,7 @@ def run(host: str = "0.0.0.0", port: int = 7999) -> None:
     @app.post("/_experimental_pull_model_checkpoint")
     async def _experimental_pull_model_checkpoint(
         model: TrainableModel = Body(...),
-        step: int | str | None = Body(None),
+        step: int | Literal["latest"] | None = Body(None),
         local_path: str | None = Body(None),
         verbose: bool = Body(False),
         s3_bucket: str | None = Body(None),
