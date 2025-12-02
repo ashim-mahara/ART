@@ -1,7 +1,7 @@
 import asyncio
 import os
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import semver
 import sky
@@ -274,10 +274,9 @@ class SkyPilotBackend(Backend):
         *,
         step: int | Literal["latest"] | None = None,
         local_path: str | None = None,
-        s3_bucket: str | None = None,
+        s3_bucket: str,
         prefix: str | None = None,
         verbose: bool = False,
-        **kwargs: Any,
     ) -> str:
         """Pull a model checkpoint to the client machine.
 
@@ -289,7 +288,7 @@ class SkyPilotBackend(Backend):
             step: The step to pull. Can be an int for a specific step,
                  or "latest" to pull the latest checkpoint. If None, pulls latest.
             local_path: Local directory to save the checkpoint. If None, uses default paths.
-            s3_bucket: S3 bucket to pull from (required).
+            s3_bucket: S3 bucket to pull from.
             prefix: S3 prefix.
             verbose: Whether to print verbose output.
 
@@ -305,11 +304,6 @@ class SkyPilotBackend(Backend):
         )
         from art.utils.s3 import pull_model_from_s3
         from art.utils.s3_checkpoint_utils import get_latest_checkpoint_step_from_s3
-
-        if s3_bucket is None:
-            raise ValueError(
-                "s3_bucket is required for SkyPilotBackend.pull_model_checkpoint()"
-            )
 
         # Determine which step to use
         resolved_step: int

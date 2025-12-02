@@ -1,11 +1,17 @@
 import asyncio
-from typing import TYPE_CHECKING, Any, AsyncIterator, Literal
+import warnings
+from typing import TYPE_CHECKING, AsyncIterator, Literal
 
 from openai._types import NOT_GIVEN
 from tqdm import auto as tqdm
 
 from art.serverless.client import Client, ExperimentalTrainingConfig
-from art.utils.deploy_model import LoRADeploymentJob, LoRADeploymentProvider
+from art.utils.deployment import (
+    DeploymentResult,
+    Provider,
+    TogetherDeploymentConfig,
+    WandbDeploymentConfig,
+)
 
 from .. import dev
 from ..backend import Backend
@@ -199,7 +205,6 @@ class ServerlessBackend(Backend):
         step: int | Literal["latest"] | None = None,
         local_path: str | None = None,
         verbose: bool = False,
-        **kwargs: Any,
     ) -> str:
         """Pull a model checkpoint from W&B artifacts to a local path.
 
@@ -221,7 +226,11 @@ class ServerlessBackend(Backend):
         import wandb
 
         assert model.id is not None, "Model ID is required"
-        assert model.entity is not None, "Model entity is required"
+
+        # If entity is not set, use the user's default entity from W&B
+        api = wandb.Api(api_key=self._client.api_key)
+        if model.entity is None:
+            model.entity = api.default_entity
 
         # Determine which step to use
         resolved_step: int
@@ -244,8 +253,7 @@ class ServerlessBackend(Backend):
         # The artifact name follows the pattern: {entity}/{project}/{model_name}:v{step}
         artifact_name = f"{model.entity}/{model.project}/{model.name}:v{resolved_step}"
 
-        # Use wandb API to download
-        api = wandb.Api(api_key=self._client.api_key)
+        # Use wandb API to download (api was already created above for entity lookup)
         artifact = api.artifact(artifact_name, type="lora")
 
         # Determine download path
@@ -278,6 +286,12 @@ class ServerlessBackend(Backend):
         delete: bool = False,
         only_step: int | Literal["latest"] | None = None,
     ) -> None:
+        """Deprecated. Use `_experimental_pull_model_checkpoint` instead."""
+        warnings.warn(
+            "_experimental_pull_from_s3 is deprecated. Use _experimental_pull_model_checkpoint instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         raise NotImplementedError
 
     async def _experimental_push_to_s3(
@@ -305,13 +319,11 @@ class ServerlessBackend(Backend):
 
     async def _experimental_deploy(
         self,
-        deploy_to: LoRADeploymentProvider,
+        provider: Provider,
         model: "TrainableModel",
         step: int | None = None,
-        s3_bucket: str | None = None,
-        prefix: str | None = None,
+        config: TogetherDeploymentConfig | WandbDeploymentConfig | None = None,
         verbose: bool = False,
         pull_checkpoint: bool = True,
-        wait_for_completion: bool = True,
-    ) -> LoRADeploymentJob:
+    ) -> DeploymentResult:
         raise NotImplementedError

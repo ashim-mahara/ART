@@ -1,11 +1,17 @@
 import json
-from typing import TYPE_CHECKING, Any, AsyncIterator, Literal
+import warnings
+from typing import TYPE_CHECKING, AsyncIterator, Literal
 
 import httpx
 from tqdm import auto as tqdm
 
 from art.utils import log_http_errors
-from art.utils.deploy_model import LoRADeploymentJob, LoRADeploymentProvider
+from art.utils.deployment import (
+    DeploymentResult,
+    Provider,
+    TogetherDeploymentConfig,
+    WandbDeploymentConfig,
+)
 
 from . import dev
 from .trajectories import TrajectoryGroup
@@ -131,49 +137,6 @@ class Backend:
     # ------------------------------------------------------------------
 
     @log_http_errors
-    async def _experimental_pull_model_checkpoint(
-        self,
-        model: "TrainableModel",
-        *,
-        step: int | Literal["latest"] | None = None,
-        local_path: str | None = None,
-        verbose: bool = False,
-        **kwargs: Any,
-    ) -> str:
-        """Pull a model checkpoint to a local path.
-
-        This method downloads a specific checkpoint from the backend's storage
-        (S3 for LocalBackend/SkyPilot, W&B artifacts for ServerlessBackend)
-        to a local directory.
-
-        Args:
-            model: The model to pull checkpoint for.
-            step: The step to pull. Can be an int for a specific step,
-                 or "latest" to pull the latest checkpoint. If None, pulls latest.
-            local_path: Local directory to save the checkpoint. If None, uses default art path.
-            verbose: Whether to print verbose output.
-            **kwargs: Backend-specific parameters:
-                - s3_bucket (str | None): S3 bucket to pull from (LocalBackend/SkyPilotBackend)
-                - prefix (str | None): S3 prefix (LocalBackend/SkyPilotBackend)
-
-        Returns:
-            Path to the local checkpoint directory.
-        """
-        response = await self._client.post(
-            "/_experimental_pull_model_checkpoint",
-            json={
-                "model": model.safe_model_dump(),
-                "step": step,
-                "local_path": local_path,
-                "verbose": verbose,
-                **kwargs,
-            },
-            timeout=600,
-        )
-        response.raise_for_status()
-        return response.json()["checkpoint_path"]
-
-    @log_http_errors
     async def _experimental_pull_from_s3(
         self,
         model: "Model",
@@ -186,10 +149,18 @@ class Backend:
     ) -> None:
         """Download the model directory from S3 into file system where the LocalBackend is running. Right now this can be used to pull trajectory logs for processing or model checkpoints.
 
+        .. deprecated::
+            This method is deprecated. Use `_experimental_pull_model_checkpoint` instead.
+
         Args:
             only_step: If specified, only pull this specific step. Can be an int for a specific step,
                       or "latest" to pull only the latest checkpoint. If None, pulls all steps.
         """
+        warnings.warn(
+            "_experimental_pull_from_s3 is deprecated. Use _experimental_pull_model_checkpoint instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         response = await self._client.post(
             "/_experimental_pull_from_s3",
             json={
@@ -270,34 +241,36 @@ class Backend:
     @log_http_errors
     async def _experimental_deploy(
         self,
-        deploy_to: LoRADeploymentProvider,
+        provider: Provider,
         model: "TrainableModel",
         step: int | None = None,
-        s3_bucket: str | None = None,
-        prefix: str | None = None,
+        config: TogetherDeploymentConfig | WandbDeploymentConfig | None = None,
         verbose: bool = False,
         pull_checkpoint: bool = True,
-        wait_for_completion: bool = True,
-    ) -> LoRADeploymentJob:
+    ) -> DeploymentResult:
         """
         Deploy the model's latest checkpoint to a hosted inference endpoint.
 
-        Together is currently the only supported provider. See link for supported base models:
-        https://docs.together.ai/docs/lora-inference#supported-base-models
+        Args:
+            provider: The deployment provider ("together" or "wandb").
+            model: The model to deploy.
+            step: The checkpoint step to deploy. If None, deploys latest.
+            config: Provider-specific deployment configuration.
+            verbose: Whether to print verbose output.
+            pull_checkpoint: Whether to pull the checkpoint first.
         """
         response = await self._client.post(
             "/_experimental_deploy",
             json={
-                "deploy_to": deploy_to,
+                "provider": provider,
                 "model": model.safe_model_dump(),
                 "step": step,
-                "s3_bucket": s3_bucket,
-                "prefix": prefix,
+                "config": config.model_dump() if config else None,
+                "config_type": type(config).__name__ if config else None,
                 "verbose": verbose,
                 "pull_checkpoint": pull_checkpoint,
-                "wait_for_completion": wait_for_completion,
             },
             timeout=600,
         )
         response.raise_for_status()
-        return LoRADeploymentJob(**response.json())
+        return DeploymentResult(**response.json())

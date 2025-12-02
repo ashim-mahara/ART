@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 
 import art
-from art.utils.deploy_model import LoRADeploymentProvider, deploy_model
+from art.utils.deployment import TogetherDeploymentConfig, deploy_model
 from art.utils.get_model_step import get_model_step
 from art.utils.output_dirs import get_model_dir, get_step_checkpoint_dir
 from art.utils.s3 import pull_model_from_s3
@@ -93,22 +93,19 @@ async def deploy() -> None:
     )
 
     deployment_result = await deploy_model(
-        deploy_to=LoRADeploymentProvider.TOGETHER,
         model=model,
         checkpoint_path=checkpoint_path,
         step=step,
-        s3_bucket=backup_bucket,
+        provider="together",
+        config=TogetherDeploymentConfig(
+            s3_bucket=backup_bucket,
+            wait_for_completion=True,
+        ),
         verbose=True,
-        wait_for_completion=True,
     )
-
-    if deployment_result.status == "Failed":
-        raise RuntimeError(f"Deployment failed: {deployment_result.failure_reason}")
 
     print("Deployment successful! ✨")
-    print(
-        f"Model deployed at Together under name: {deployment_result.model_name} (job_id={deployment_result.job_id})"
-    )
+    print(f"Model deployed under name: {deployment_result.inference_model_name}")
 
 
 if __name__ == "__main__":
