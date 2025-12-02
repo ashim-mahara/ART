@@ -80,6 +80,7 @@ async def main():
         checkpoint_path = await backend._experimental_pull_model_checkpoint(
             model,
             step=STEP,
+            s3_bucket=os.environ.get("BACKUP_BUCKET"),
             verbose=True,
         )
 

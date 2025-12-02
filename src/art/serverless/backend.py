@@ -252,8 +252,10 @@ class ServerlessBackend(Backend):
             print(f"Downloading checkpoint step {resolved_step} from W&B artifacts...")
 
         # Download from W&B artifacts
-        # The artifact name follows the pattern: {entity}/{project}/{model_name}:v{step}
-        artifact_name = f"{model.entity}/{model.project}/{model.name}:v{resolved_step}"
+        # The artifact name follows the pattern: {entity}/{project}/{model_name}:step{step}
+        artifact_name = (
+            f"{model.entity}/{model.project}/{model.name}:step{resolved_step}"
+        )
 
         # Use wandb API to download (api was already created above for entity lookup)
         artifact = api.artifact(artifact_name, type="lora")

@@ -114,4 +114,20 @@ def run(host: str = "0.0.0.0", port: int = 7999) -> None:
             delete=delete,
         )
 
+    @app.post("/_experimental_push_to_s3")
+    async def _experimental_push_to_s3(
+        model: Model = Body(...),
+        s3_bucket: str | None = Body(None),
+        prefix: str | None = Body(None),
+        verbose: bool = Body(False),
+        delete: bool = Body(False),
+    ):
+        await backend._experimental_push_to_s3(
+            model=model,
+            s3_bucket=s3_bucket,
+            prefix=prefix,
+            verbose=verbose,
+            delete=delete,
+        )
+
     uvicorn.run(app, host=host, port=port, loop="asyncio")

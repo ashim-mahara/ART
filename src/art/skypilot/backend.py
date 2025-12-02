@@ -324,14 +324,14 @@ class SkyPilotBackend(Backend):
             resolved_step = step
 
         # Determine target location
+        art_path = get_default_art_path()
         if local_path is not None:
             # Custom location - copy directly to local_path
             checkpoint_dir = local_path
         else:
             # Standard ART structure
-            pull_art_path = get_default_art_path()
             checkpoint_dir = get_step_checkpoint_dir(
-                get_model_dir(model=model, art_path=pull_art_path), resolved_step
+                get_model_dir(model=model, art_path=art_path), resolved_step
             )
 
         # Pull from S3 to client machine
@@ -341,8 +341,7 @@ class SkyPilotBackend(Backend):
             )
 
         if local_path is not None:
-            # For custom location, pull to temp location first, then copy
-            temp_art_path = get_default_art_path()
+            # For custom location, pull to default location first, then copy
             await pull_model_from_s3(
                 model_name=model.name,
                 project=model.project,
@@ -350,12 +349,12 @@ class SkyPilotBackend(Backend):
                 s3_bucket=s3_bucket,
                 prefix=prefix,
                 verbose=verbose,
-                art_path=temp_art_path,
+                art_path=art_path,
                 exclude=["logs", "trajectories"],
             )
             # Copy to custom location
             temp_checkpoint_dir = get_step_checkpoint_dir(
-                get_model_dir(model=model, art_path=temp_art_path), resolved_step
+                get_model_dir(model=model, art_path=art_path), resolved_step
             )
             import shutil
 
@@ -372,7 +371,7 @@ class SkyPilotBackend(Backend):
                 s3_bucket=s3_bucket,
                 prefix=prefix,
                 verbose=verbose,
-                art_path=pull_art_path,
+                art_path=art_path,
                 exclude=["logs", "trajectories"],
             )
 
