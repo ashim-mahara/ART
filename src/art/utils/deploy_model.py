@@ -9,14 +9,14 @@ from art.utils.deployment import (
     # New API
     DeploymentConfig,
     DeploymentResult,
+    # Legacy API
+    LoRADeploymentJob,
+    LoRADeploymentProvider,
     Provider,
     TogetherDeploymentConfig,
     WandbDeploymentConfig,
     deploy_model,
     deploy_wandb,
-    # Legacy API
-    LoRADeploymentJob,
-    LoRADeploymentProvider,
 )
 
 # Also export these for any code that imports them directly

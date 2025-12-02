@@ -6,18 +6,18 @@ from .common import (
     Provider,
     deploy_model,
 )
+
+# Legacy exports for backwards compatibility
+from .legacy import (
+    LoRADeploymentJob,
+    LoRADeploymentProvider,
+)
 from .together import (
     TogetherDeploymentConfig,
 )
 from .wandb import (
     WandbDeploymentConfig,
     deploy_wandb,
-)
-
-# Legacy exports for backwards compatibility
-from .legacy import (
-    LoRADeploymentJob,
-    LoRADeploymentProvider,
 )
 
 __all__ = [

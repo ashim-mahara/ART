@@ -242,4 +242,3 @@ async def deploy_to_together(
         job = await _check_job_status(job_id, verbose=verbose)
 
     return job.model_name
-

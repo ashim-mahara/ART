@@ -88,9 +88,10 @@ def deploy_wandb(
     finally:
         run.finish()
 
-    inference_name = f"wandb-artifact:///{model.entity}/{model.project}/{model.name}:step{step}"
+    inference_name = (
+        f"wandb-artifact:///{model.entity}/{model.project}/{model.name}:step{step}"
+    )
     if verbose:
         print(f"Successfully deployed to W&B. Inference model name: {inference_name}")
 
     return inference_name
-
