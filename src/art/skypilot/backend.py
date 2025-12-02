@@ -325,23 +325,14 @@ class SkyPilotBackend(Backend):
 
         # Determine target location
         if local_path is not None:
-            # Custom flat location
-            checkpoint_dir = os.path.join(local_path, f"{resolved_step:04d}")
-            pull_art_path = local_path
+            # Custom location - copy directly to local_path
+            checkpoint_dir = local_path
         else:
             # Standard ART structure
             pull_art_path = get_default_art_path()
             checkpoint_dir = get_step_checkpoint_dir(
                 get_model_dir(model=model, art_path=pull_art_path), resolved_step
             )
-
-        # Check if checkpoint already exists
-        if os.path.exists(checkpoint_dir):
-            if verbose:
-                print(
-                    f"Checkpoint step {resolved_step} already exists locally at {checkpoint_dir}"
-                )
-            return checkpoint_dir
 
         # Pull from S3 to client machine
         if verbose:
@@ -368,10 +359,10 @@ class SkyPilotBackend(Backend):
             )
             import shutil
 
-            os.makedirs(os.path.dirname(checkpoint_dir), exist_ok=True)
-            shutil.copytree(temp_checkpoint_dir, checkpoint_dir)
+            os.makedirs(local_path, exist_ok=True)
+            shutil.copytree(temp_checkpoint_dir, local_path, dirs_exist_ok=True)
             if verbose:
-                print(f"✓ Checkpoint copied to {checkpoint_dir}")
+                print(f"✓ Checkpoint copied to {local_path}")
         else:
             # Pull directly to standard location
             await pull_model_from_s3(

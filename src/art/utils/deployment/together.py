@@ -241,4 +241,10 @@ async def deploy_to_together(
     else:
         job = await _check_job_status(job_id, verbose=verbose)
 
+    if job.status == TogetherJobStatus.FAILED:
+        raise RuntimeError(
+            f"Together deployment failed for {model.name} step {step}. "
+            f"Job ID: {job.job_id}. Reason: {job.failure_reason}"
+        )
+
     return job.model_name

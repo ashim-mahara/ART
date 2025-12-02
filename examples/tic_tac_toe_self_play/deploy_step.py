@@ -6,6 +6,7 @@ from rollout import ModelConfig, TicTacToeScenario, rollout
 from train import BASE_MODEL, CLUSTER_NAME, MODEL_NAME, PROJECT_NAME
 
 import art
+from art.utils.deployment import TogetherDeploymentConfig, deploy_model
 
 
 async def deploy_step():
@@ -44,18 +45,28 @@ async def deploy_step():
 
         backend = LocalBackend()
 
-    deployment_result = await backend._experimental_deploy(
-        deploy_to="together",
-        model=model,
+    # Pull checkpoint from S3
+    checkpoint_path = await backend._experimental_pull_model_checkpoint(
+        model,
         step=args.step,
+        s3_bucket=os.environ.get("BACKUP_BUCKET"),
         verbose=True,
-        pull_s3=True,
-        wait_for_completion=True,
     )
-    if deployment_result.status == "Failed":
-        raise Exception(f"Deployment failed: {deployment_result.failure_reason}")
 
-    deployed_model_name = deployment_result.model_name
+    # Deploy to Together
+    deployment_result = await deploy_model(
+        model=model,
+        checkpoint_path=checkpoint_path,
+        step=args.step,
+        provider="together",
+        config=TogetherDeploymentConfig(
+            s3_bucket=os.environ.get("BACKUP_BUCKET"),
+            wait_for_completion=True,
+        ),
+        verbose=True,
+    )
+
+    deployed_model_name = deployment_result.inference_model_name
 
     lora_model = art.Model(
         name=deployed_model_name,

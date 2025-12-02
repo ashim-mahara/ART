@@ -231,6 +231,8 @@ class ServerlessBackend(Backend):
         api = wandb.Api(api_key=self._client.api_key)
         if model.entity is None:
             model.entity = api.default_entity
+            if verbose:
+                print(f"Using default W&B entity: {model.entity}")
 
         # Determine which step to use
         resolved_step: int
@@ -259,20 +261,22 @@ class ServerlessBackend(Backend):
         # Determine download path
         if local_path is None:
             # Create a temporary directory that won't be cleaned up automatically
-            local_path = os.path.join(
-                tempfile.gettempdir(), "art_checkpoints", model.project, model.name
+            checkpoint_dir = os.path.join(
+                tempfile.gettempdir(),
+                "art_checkpoints",
+                model.project,
+                model.name,
+                f"{resolved_step:04d}",
             )
-
-        checkpoint_dir = os.path.join(local_path, f"{resolved_step:04d}")
+        else:
+            # Custom location - copy directly to local_path
+            checkpoint_dir = local_path
 
         # Download artifact
-        if not os.path.exists(checkpoint_dir):
-            os.makedirs(os.path.dirname(checkpoint_dir), exist_ok=True)
-            artifact.download(root=checkpoint_dir)
-            if verbose:
-                print(f"Downloaded checkpoint to {checkpoint_dir}")
-        elif verbose:
-            print(f"Checkpoint already exists at {checkpoint_dir}")
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        artifact.download(root=checkpoint_dir)
+        if verbose:
+            print(f"Downloaded checkpoint to {checkpoint_dir}")
 
         return checkpoint_dir
 
@@ -315,15 +319,4 @@ class ServerlessBackend(Backend):
         verbose: bool = False,
         prefix: str | None = None,
     ) -> None:
-        raise NotImplementedError
-
-    async def _experimental_deploy(
-        self,
-        provider: Provider,
-        model: "TrainableModel",
-        step: int | None = None,
-        config: TogetherDeploymentConfig | WandbDeploymentConfig | None = None,
-        verbose: bool = False,
-        pull_checkpoint: bool = True,
-    ) -> DeploymentResult:
         raise NotImplementedError

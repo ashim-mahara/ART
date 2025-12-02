@@ -114,47 +114,4 @@ def run(host: str = "0.0.0.0", port: int = 7999) -> None:
             delete=delete,
         )
 
-    @app.post("/_experimental_push_to_s3")
-    async def _experimental_push_to_s3(
-        model: Model = Body(...),
-        s3_bucket: str | None = Body(None),
-        prefix: str | None = Body(None),
-        verbose: bool = Body(False),
-        delete: bool = Body(False),
-    ):
-        await backend._experimental_push_to_s3(
-            model=model,
-            s3_bucket=s3_bucket,
-            prefix=prefix,
-            verbose=verbose,
-            delete=delete,
-        )
-
-    @app.post("/_experimental_deploy")
-    async def _experimental_deploy(
-        provider: Provider = Body(...),
-        model: TrainableModel = Body(...),
-        step: int | None = Body(None),
-        config: dict | None = Body(None),
-        config_type: str | None = Body(None),
-        verbose: bool = Body(False),
-        pull_checkpoint: bool = Body(True),
-    ):
-        # Reconstruct config object from serialized data
-        parsed_config = None
-        if config is not None and config_type is not None:
-            if config_type == "TogetherDeploymentConfig":
-                parsed_config = TogetherDeploymentConfig(**config)
-            elif config_type == "WandbDeploymentConfig":
-                parsed_config = WandbDeploymentConfig(**config)
-
-        return await backend._experimental_deploy(
-            provider=provider,
-            model=model,
-            step=step,
-            config=parsed_config,
-            verbose=verbose,
-            pull_checkpoint=pull_checkpoint,
-        )
-
     uvicorn.run(app, host=host, port=port, loop="asyncio")
