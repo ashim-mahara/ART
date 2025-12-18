@@ -24,9 +24,6 @@ def get_last_checkpoint_dir(output_dir: str) -> str | None:
     print("DEBUG get_last_checkpoint_dir: output_dir =", output_dir)
     step = get_step_from_dir(output_dir)
     print("DEBUG get_last_checkpoint_dir: step =", step)
-    if step == 0:
-        print("DEBUG get_last_checkpoint_dir: step is 0, returning None")
-        return None
 
     checkpoint_dir = os.path.join(output_dir, "checkpoints", f"{step:04d}")
     print("DEBUG get_last_checkpoint_dir: checkpoint_dir =", checkpoint_dir)
