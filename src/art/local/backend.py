@@ -191,6 +191,14 @@ class LocalBackend(Backend):
             # Check for custom chat template in checkpoint
             model_dir = get_model_dir(model=model, art_path=self._path)
             print("DEBUG: model_dir", model_dir)
+            print("DEBUG: model_dir exists?", os.path.exists(model_dir))
+            if os.path.exists(model_dir):
+                print("DEBUG: model_dir contents", os.listdir(model_dir))
+                checkpoints_subdir = os.path.join(model_dir, "checkpoints")
+                if os.path.exists(checkpoints_subdir):
+                    print("DEBUG: checkpoints subdir contents", os.listdir(checkpoints_subdir))
+                else:
+                    print("DEBUG: no checkpoints subdir")
             checkpoint_dir = get_last_checkpoint_dir(model_dir)
             print("DEBUG: checkpoint_dir", checkpoint_dir)
             if checkpoint_dir:
