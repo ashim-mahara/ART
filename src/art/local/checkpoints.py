@@ -21,17 +21,12 @@ def delete_checkpoints(output_dir: str, excluding: list[int]) -> None:
 
 
 def get_last_checkpoint_dir(output_dir: str) -> str | None:
-    print("DEBUG get_last_checkpoint_dir: output_dir =", output_dir)
     step = get_step_from_dir(output_dir)
-    print("DEBUG get_last_checkpoint_dir: step =", step)
 
     checkpoint_dir = os.path.join(output_dir, "checkpoints", f"{step:04d}")
-    print("DEBUG get_last_checkpoint_dir: checkpoint_dir =", checkpoint_dir)
     if os.path.exists(checkpoint_dir):
-        print("DEBUG get_last_checkpoint_dir: returning", checkpoint_dir)
         return checkpoint_dir
 
-    print("DEBUG get_last_checkpoint_dir: checkpoint_dir does not exist, returning None")
     return None
 
 

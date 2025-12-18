@@ -61,7 +61,6 @@ from ..types import Message, TrainConfig
 from ..utils import format_message, get_model_step
 from .checkpoints import (
     delete_checkpoints,
-    get_last_checkpoint_dir,
 )
 from .service import ModelService
 
@@ -187,29 +186,6 @@ class LocalBackend(Backend):
             self._tokenizers[model.base_model] = AutoTokenizer.from_pretrained(
                 model.base_model
             )
-            print("DEBUG: _get_packed_tensors", model.base_model)
-            # Check for custom chat template in checkpoint
-            model_dir = get_model_dir(model=model, art_path=self._path)
-            print("DEBUG: model_dir", model_dir)
-            print("DEBUG: model_dir exists?", os.path.exists(model_dir))
-            if os.path.exists(model_dir):
-                print("DEBUG: model_dir contents", os.listdir(model_dir))
-                checkpoints_subdir = os.path.join(model_dir, "checkpoints")
-                if os.path.exists(checkpoints_subdir):
-                    print("DEBUG: checkpoints subdir contents", os.listdir(checkpoints_subdir))
-                else:
-                    print("DEBUG: no checkpoints subdir")
-            checkpoint_dir = get_last_checkpoint_dir(model_dir)
-            print("DEBUG: checkpoint_dir", checkpoint_dir)
-            if checkpoint_dir:
-                print("DEBUG: checkpoint_dir exists")
-                chat_template_path = os.path.join(checkpoint_dir, "chat_template.jinja")
-                print("DEBUG: chat_template_path", chat_template_path)
-                if os.path.exists(chat_template_path):
-                    print("DEBUG: chat_template_path exists")
-                    with open(chat_template_path) as f:
-                        print("DEBUG: chat_template", f.read())
-                        self._tokenizers[model.base_model].chat_template = f.read()
         if model.base_model not in self._image_processors:
             try:
                 self._image_processors[model.base_model] = (
