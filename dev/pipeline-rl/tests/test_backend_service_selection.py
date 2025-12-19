@@ -22,12 +22,14 @@ def backend():
     """Create a LocalBackend instance for testing."""
     # Use a temporary directory for testing
     import tempfile
+
     tmpdir = tempfile.mkdtemp(prefix="test_backend_service_selection_")
     # Use in_process=True to avoid mp_actors proxying for easier testing
     backend = LocalBackend(path=tmpdir, in_process=True)
     yield backend
     # Cleanup
     import shutil
+
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
