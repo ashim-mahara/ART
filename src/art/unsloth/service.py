@@ -234,5 +234,13 @@ class UnslothService:
                 lora_int_id=1,
                 lora_path=lora_path,
             )
-        self.state.vllm.async_engine.engine.remove_lora(1)
-        self.state.vllm.async_engine.engine.add_lora(lora_request)  # type: ignore
+        # Get the underlying engine - works with both sync LLM and async AsyncLLMEngine
+        engine = self.state.vllm.async_engine
+        if hasattr(engine, "engine"):
+            # Async engine: access via .engine
+            engine = engine.engine
+        elif hasattr(engine, "llm_engine"):
+            # Sync LLM: access via .llm_engine
+            engine = engine.llm_engine
+        engine.remove_lora(1)
+        engine.add_lora(lora_request)  # type: ignore

@@ -24,6 +24,8 @@ def get_model_config(
         max_lora_rank=8,
         max_seq_length=32768,
         model_name=base_model,
+        # use_async=True is required for the OpenAI server to work
+        # The async engine uses multiprocessing, but training works separately
         use_async=True,
     )
     if config.get("_decouple_vllm_and_unsloth", False):
@@ -35,7 +37,7 @@ def get_model_config(
         init_args.pop("use_async")
     engine_args = EngineArgs(
         allowed_local_media_path="/tmp",
-        disable_log_requests=True,
+        enable_log_requests=False,
         enable_sleep_mode=enable_sleep_mode,
         generation_config="vllm",
     )

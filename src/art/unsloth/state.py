@@ -17,8 +17,7 @@ from transformers.utils.dummy_pt_objects import (
 from trl import GRPOConfig, GRPOTrainer
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
-from vllm.worker.multi_step_model_runner import MultiStepModelRunner
-from vllm.worker.worker_base import WorkerWrapperBase
+from vllm.v1.worker.worker_base import WorkerWrapperBase
 
 from ..dev.model import InternalModelConfig
 from .train import gc_and_empty_cuda_cache
@@ -41,16 +40,11 @@ class ModelState:
     def __init__(self, config: InternalModelConfig) -> None:
         from vllm.engine import async_llm_engine
 
-        # Patch MultiStepModelRunner for Unsloth compatibility
-        if not hasattr(MultiStepModelRunner, "model"):
-            MultiStepModelRunner.model = property(  # type: ignore
-                lambda self: self._base_model_runner.model
-            )
-
         # Set effectively unlimited timeout to support engine pausing & resumption
         async_llm_engine.ENGINE_ITERATION_TIMEOUT_S = 2**31 - 1
-        # Sticking with V0 engine for now
-        os.environ["VLLM_USE_V1"] = "0"
+        # Note: VLLM_ENABLE_V1_MULTIPROCESSING=0 is set in art/__init__.py before
+        # unsloth is imported. This disables V1 multiprocessing so unsloth can access
+        # model internals directly via engine_core.engine_core path.
         # We can't use expandable segments with sleep mode
         enable_sleep_mode = config.get("engine_args", {}).get(
             "enable_sleep_mode", False
@@ -71,8 +65,14 @@ class ModelState:
         def _from_engine_args(
             engine_args: AsyncEngineArgs, *args: Any, **kwargs: Any
         ) -> AsyncLLMEngine:
+            engine_kwargs = dict(config.get("engine_args", {}))
+            if "disable_log_requests" in engine_kwargs:
+                engine_kwargs.setdefault(
+                    "enable_log_requests", not engine_kwargs["disable_log_requests"]
+                )
+                engine_kwargs.pop("disable_log_requests", None)
             return from_engine_args(
-                replace(engine_args, **config.get("engine_args", {})), *args, **kwargs
+                replace(engine_args, **engine_kwargs), *args, **kwargs
             )
 
         AsyncLLMEngine.from_engine_args = _from_engine_args
@@ -121,32 +121,68 @@ class ModelState:
 
 
 class vLLMState:
-    def __init__(self, async_engine: AsyncLLMEngine, enable_sleep_mode: bool) -> None:
+    def __init__(
+        self, vllm_engine: "AsyncLLMEngine | Any", enable_sleep_mode: bool
+    ) -> None:
+        from vllm.entrypoints.llm import LLM
+
         from ..vllm import (
             create_engine_pause_and_resume_functions,
             patch_allocator,
             patch_get_lora_tokenizer_async,
             patch_lora_request,
-            patch_multi_step_model_runner,
         )
+
+        # Determine if we have a sync LLM or async AsyncLLMEngine
+        # In vLLM 0.12+ with use_async=False, we get a sync LLM object
+        self._is_sync_engine = isinstance(vllm_engine, LLM)
+
+        if self._is_sync_engine:
+            # For sync LLM, access the internal LLMEngine
+            self.async_engine = vllm_engine  # Store the LLM object
+            self._llm_engine = vllm_engine.llm_engine
+        else:
+            # For async engine, use it directly
+            self.async_engine = vllm_engine
+            self._llm_engine = getattr(vllm_engine, "engine", vllm_engine)
 
         if enable_sleep_mode:
             patch_allocator()
+
         # Unsloth patches
         patch_lora_request()
         patch_get_lora_tokenizer_async()
-        self.async_engine = async_engine
-        if enable_sleep_mode:
+
+        if enable_sleep_mode and not self._is_sync_engine:
+            # Pause/resume only works with async engines
             self.pause_engine, self.resume_engine = (
                 create_engine_pause_and_resume_functions(self.async_engine)
             )
+
         self.enable_sleep_mode = enable_sleep_mode
-        self.driver_worker = cast(
-            "WorkerWrapperBase",
-            getattr(self.async_engine.engine.model_executor, "driver_worker"),
-        )
-        if isinstance(self.driver_worker.model_runner, MultiStepModelRunner):
-            patch_multi_step_model_runner(self.driver_worker.model_runner)
+
+        # Get driver worker from the appropriate engine
+        model_executor = getattr(self._llm_engine, "model_executor", None)
+        if model_executor is not None:
+            self.driver_worker = cast(
+                "WorkerWrapperBase",
+                getattr(model_executor, "driver_worker"),
+            )
+        else:
+            # In vLLM 0.12+ with InprocClient, access via engine_core
+            engine_core = getattr(self._llm_engine, "engine_core", None)
+            if engine_core is not None:
+                inner_core = getattr(engine_core, "engine_core", engine_core)
+                model_executor = getattr(inner_core, "model_executor", None)
+                if model_executor is not None:
+                    self.driver_worker = cast(
+                        "WorkerWrapperBase",
+                        getattr(model_executor, "driver_worker"),
+                    )
+                else:
+                    self.driver_worker = None  # type: ignore
+            else:
+                self.driver_worker = None  # type: ignore
 
     @asynccontextmanager
     async def train_mode(self) -> AsyncGenerator[None, None]:
@@ -156,21 +192,39 @@ class vLLMState:
         if not self.enable_sleep_mode:
             yield
             return
-        try:
-            await self.pause_engine()
+
+        if self._is_sync_engine:
+            # For sync engines, we can't pause/resume in the same way
+            # Just call sleep/wake_up synchronously
             try:
-                if self.async_engine.engine.has_unfinished_requests():
-                    # Offload KV cache to CPU memory (or disk)
-                    await self.async_engine.sleep(level=1)
+                if self._llm_engine.has_unfinished_requests():
+                    self._llm_engine.sleep(level=1)
                 else:
-                    # Reset prefix cache and discard KV cache
-                    await self.async_engine.reset_prefix_cache()
-                    await self.async_engine.sleep(level=2)
+                    self._llm_engine.reset_prefix_cache()
+                    self._llm_engine.sleep(level=2)
                 gc_and_empty_cuda_cache()
                 yield
             finally:
                 gc_and_empty_cuda_cache()
                 await asyncio.sleep(0.1)
-                await self.async_engine.wake_up()
-        finally:
-            await self.resume_engine()
+                self._llm_engine.wake_up()
+        else:
+            # Async engine path
+            try:
+                await self.pause_engine()
+                try:
+                    if self.async_engine.engine.has_unfinished_requests():
+                        # Offload KV cache to CPU memory (or disk)
+                        await self.async_engine.sleep(level=1)
+                    else:
+                        # Reset prefix cache and discard KV cache
+                        await self.async_engine.reset_prefix_cache()
+                        await self.async_engine.sleep(level=2)
+                    gc_and_empty_cuda_cache()
+                    yield
+                finally:
+                    gc_and_empty_cuda_cache()
+                    await asyncio.sleep(0.1)
+                    await self.async_engine.wake_up()
+            finally:
+                await self.resume_engine()

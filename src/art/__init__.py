@@ -7,7 +7,18 @@ if os.environ.get("IMPORT_PEFT", "0") == "1":
 # Import unsloth before transformers, peft, and trl to maximize Unsloth optimizations
 # NOTE: If we import peft before unsloth to enable sleep mode, a warning will be shown
 if os.environ.get("IMPORT_UNSLOTH", "0") == "1":
+    # Disable V1 multiprocessing for compatibility with unsloth's model access patterns
+    # This allows unsloth to access model internals directly via engine_core.engine_core
+    # This must be set BEFORE vLLM is imported (which happens during unsloth import)
+    # Note: We force this even if already set, as unsloth or other code may have set it
+    os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
+
     import unsloth  # type: ignore # noqa: F401
+
+    # After unsloth is imported, patch _get_vllm_state_dict to handle V1 multiprocessing
+    from art.unsloth.patches import patch_get_vllm_state_dict
+
+    patch_get_vllm_state_dict()
 
 if os.environ.get("IMPORT_PEFT", "0") == "1":
     # torch.cuda.MemPool doesn't currently support expandable_segments which is used in sleep mode

@@ -65,6 +65,42 @@ from .checkpoints import (
 from .service import ModelService
 
 
+def _ensure_vllm_guided_decoding_stub() -> None:
+    """
+    vLLM >=0.10 removed GuidedDecodingParams; TRL still imports it. Provide a
+    lightweight shim so the import succeeds, and swallow any guided_decoding
+    kwarg if TRL tries to pass it into SamplingParams.
+    """
+
+    try:
+        import vllm.sampling_params as sp  # type: ignore
+    except Exception:
+        return
+
+    if not hasattr(sp, "GuidedDecodingParams"):
+
+        class GuidedDecodingParams:  # pragma: no cover
+            def __init__(
+                self, regex: str | None = None, *args: object, **kwargs: object
+            ) -> None:
+                self.regex = regex
+                self.args = args
+                self.kwargs = kwargs
+
+        sp.GuidedDecodingParams = GuidedDecodingParams  # type: ignore[attr-defined]
+
+    if not getattr(sp.SamplingParams, "_art_guided_decoding_patched", False):
+        orig_init = sp.SamplingParams.__init__  # type: ignore[assignment]
+
+        def patched_init(self, *args: object, **kwargs: object) -> None:  # type: ignore[override]
+            kwargs.pop("guided_decoding", None)
+            kwargs.pop("guided_decoding_regex", None)
+            orig_init(self, *args, **kwargs)
+
+        sp.SamplingParams.__init__ = patched_init  # type: ignore[assignment]
+        sp.SamplingParams._art_guided_decoding_patched = True  # type: ignore[attr-defined]
+
+
 class LocalBackend(Backend):
     def __init__(self, *, in_process: bool = False, path: str | None = None) -> None:
         """
@@ -130,6 +166,7 @@ class LocalBackend(Backend):
             _ = self._get_wandb_run(model)
 
     async def _get_service(self, model: TrainableModel) -> ModelService:
+        _ensure_vllm_guided_decoding_stub()
         from ..dev.get_model_config import get_model_config
         from ..torchtune.service import TorchtuneService
         from ..unsloth.decoupled_service import DecoupledUnslothService
@@ -167,6 +204,9 @@ class LocalBackend(Backend):
                     # When moving the service to a child process, import unsloth
                     # early to maximize optimizations
                     os.environ["IMPORT_UNSLOTH"] = "1"
+                    # Disable V1 multiprocessing for vLLM 0.12+ compatibility with unsloth
+                    # This must be set BEFORE the child process is spawned
+                    os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
                 self._services[model.name] = move_to_child_process(
                     self._services[model.name],
                     process_name="model-service",
@@ -501,9 +541,9 @@ class LocalBackend(Backend):
             num_gradient_steps = int(
                 result.pop("num_gradient_steps", estimated_gradient_steps)
             )
-            assert num_gradient_steps == estimated_gradient_steps, (
-                f"num_gradient_steps {num_gradient_steps} != estimated_gradient_steps {estimated_gradient_steps}"
-            )
+            assert (
+                num_gradient_steps == estimated_gradient_steps
+            ), f"num_gradient_steps {num_gradient_steps} != estimated_gradient_steps {estimated_gradient_steps}"
             results.append(result)
             yield {**result, "num_gradient_steps": num_gradient_steps}
             pbar.update(1)

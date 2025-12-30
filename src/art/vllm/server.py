@@ -11,9 +11,97 @@ from uvicorn.config import LOGGING_CONFIG
 from vllm.engine.protocol import EngineClient
 from vllm.entrypoints.openai.cli_args import make_arg_parser, validate_parsed_serve_args
 from vllm.logger import _DATE_FORMAT, _FORMAT
-from vllm.utils import FlexibleArgumentParser
+from vllm.utils.argparse_utils import FlexibleArgumentParser
 
 from ..dev.openai_server import OpenAIServerConfig
+
+
+def _wrap_sync_llm(llm: Any) -> Any:
+    """
+    Wrap a sync LLM to expose attributes expected by the OpenAI server.
+    The OpenAI server in vLLM 0.12 expects async engine attributes like vllm_config.
+    """
+
+    class SyncLLMWrapper:
+        """Wrapper around sync LLM to provide async-like interface for OpenAI server."""
+
+        def __init__(self, llm: Any):
+            self._llm = llm
+            self._engine = llm.llm_engine
+
+        @property
+        def vllm_config(self) -> Any:
+            return self._engine.vllm_config
+
+        @property
+        def model_config(self) -> Any:
+            return self._engine.model_config
+
+        @property
+        def engine(self) -> Any:
+            return self._engine
+
+        @property
+        def llm_engine(self) -> Any:
+            return self._engine
+
+        async def add_lora(self, lora_request: Any) -> bool:
+            # OpenAI server expects this to be async
+            return self._engine.add_lora(lora_request)
+
+        async def add_lora_async(self, lora_request: Any) -> bool:
+            return self._engine.add_lora(lora_request)
+
+        async def get_tokenizer(self) -> Any:
+            # OpenAI server awaits this
+            return self._llm.get_tokenizer()
+
+        async def get_tokenizer_async(self) -> Any:
+            return self._llm.get_tokenizer()
+
+        def get_tokenizer_sync(self) -> Any:
+            return self._llm.get_tokenizer()
+
+        async def get_supported_tasks(self) -> Any:
+            return self._engine.get_supported_tasks()
+
+        async def get_supported_tasks_async(self) -> Any:
+            return self._engine.get_supported_tasks()
+
+        async def get_model_config(self) -> Any:
+            return self._engine.model_config
+
+        @property
+        def errored(self) -> bool:
+            return False
+
+        @property
+        def dead_error(self) -> Exception | None:
+            return None
+
+        @property
+        def is_running(self) -> bool:
+            return True
+
+        @property
+        def is_stopped(self) -> bool:
+            return False
+
+        async def is_running_async(self) -> bool:
+            return True
+
+        async def errored_async(self) -> bool:
+            return False
+
+        def __getattr__(self, name: str) -> Any:
+            # Delegate to the underlying LLM or engine
+            if hasattr(self._llm, name):
+                return getattr(self._llm, name)
+            if hasattr(self._engine, name):
+                return getattr(self._engine, name)
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    return SyncLLMWrapper(llm)
 
 
 async def openai_server_task(
@@ -41,26 +129,39 @@ async def openai_server_task(
     # We must subclass ChatCompletionRequest before importing api_server
     # or logprobs will not always be returned
     subclass_chat_completion_request()
+    from vllm.entrypoints.llm import LLM
     from vllm.entrypoints.openai import api_server
 
     patch_listen_for_disconnect()
     patch_tool_parser_manager()
     set_vllm_log_file(config.get("log_file", "vllm.log"))
 
+    # Wrap sync LLM to expose attributes expected by the OpenAI server
+    if isinstance(engine, LLM):
+        engine = _wrap_sync_llm(engine)
+
     # Patch engine.add_lora; hopefully temporary
-    add_lora = engine.add_lora
+    # For sync LLM, add_lora is on llm_engine
+    if hasattr(engine, "add_lora"):
+        add_lora = engine.add_lora
+    elif hasattr(engine, "llm_engine") and hasattr(engine.llm_engine, "add_lora"):
+        add_lora = engine.llm_engine.add_lora
+    else:
+        # Fallback: no-op
+        async def add_lora(lora_request: Any) -> bool:
+            return True
 
     async def _add_lora(lora_request) -> None:
-        class LoRARequest:
-            def __getattr__(self, name: str) -> Any:
-                if name == "lora_tensors" and not hasattr(lora_request, name):
-                    return None
-                return getattr(lora_request, name)
+        # Add missing attributes that vLLM expects but unsloth doesn't provide
+        if not hasattr(lora_request, "lora_tensors"):
+            lora_request.lora_tensors = None
+        if not hasattr(lora_request, "tensorizer_config_dict"):
+            lora_request.tensorizer_config_dict = None
 
-            def __setattr__(self, name: str, value: Any) -> None:
-                setattr(lora_request, name, value)
-
-        await add_lora(LoRARequest())  # type: ignore
+        result = add_lora(lora_request)
+        # Handle both sync and async add_lora
+        if asyncio.iscoroutine(result):
+            await result
 
     engine.add_lora = _add_lora
 
@@ -120,15 +221,26 @@ def _openai_server_coroutine(
     parser = make_arg_parser(parser)
     engine_args = config.get("engine_args", {})
     server_args = config.get("server_args", {})
-    args = [
-        *[
-            f"--{key.replace('_', '-')}{f'={item}' if item is not True else ''}"
-            for args in [engine_args, server_args]
-            for key, value in args.items()
-            for item in (value if isinstance(value, list) else [value])
-            if item is not None
-        ],
-    ]
+    args = []
+    for args_dict in [engine_args, server_args]:
+        for key, value in args_dict.items():
+            if value is None:
+                continue
+            key_name = key.replace("_", "-")
+            if value is True:
+                # Boolean True: just --key
+                args.append(f"--{key_name}")
+            elif value is False:
+                # Boolean False: --no-key for BooleanOptionalAction
+                args.append(f"--no-{key_name}")
+            elif isinstance(value, list):
+                # List values: --key item1 --key item2 ...
+                for item in value:
+                    if item is not None:
+                        args.append(f"--{key_name}={item}")
+            else:
+                # Scalar values: --key=value
+                args.append(f"--{key_name}={value}")
     namespace = parser.parse_args(args)
     assert namespace is not None
     validate_parsed_serve_args(namespace)

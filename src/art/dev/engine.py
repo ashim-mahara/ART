@@ -125,4 +125,4 @@ class EngineArgs(TypedDict, total=False):
 
     additional_config: dict[str, Any] | None
 
-    disable_log_requests: bool
+    enable_log_requests: bool

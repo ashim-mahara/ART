@@ -19,6 +19,30 @@ from vllm.lora.request import LoRARequest
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.worker.gpu_worker import logger
 
+# Patch LoRARequest with attributes vLLM 0.12 expects
+if not hasattr(LoRARequest, "lora_tensors"):
+    LoRARequest.lora_tensors = None  # type: ignore
+if not hasattr(LoRARequest, "tensorizer_config_dict"):
+    LoRARequest.tensorizer_config_dict = None  # type: ignore
+
+# Drop TRL's legacy guided_decoding kwarg and translate to structured outputs.
+try:
+    from trl.trainer import grpo_trainer as _grpo_trainer
+    from vllm.sampling_params import SamplingParams as _VLLMSamplingParams
+    from vllm.sampling_params import StructuredOutputsParams
+
+    def _sampling_params_compat(*args, **kwargs):  # type: ignore[override]
+        guided = kwargs.pop("guided_decoding", None)
+        if guided is not None:
+            regex = getattr(guided, "regex", None)
+            if regex is not None:
+                kwargs["structured_outputs"] = StructuredOutputsParams(regex=regex)
+        return _VLLMSamplingParams(*args, **kwargs)
+
+    _grpo_trainer.SamplingParams = _sampling_params_compat  # type: ignore[attr-defined]
+except Exception:
+    pass
+
 from .. import dev, types
 from ..local.checkpoints import get_last_checkpoint_dir
 from ..preprocessing.pack import (

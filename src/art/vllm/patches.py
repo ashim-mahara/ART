@@ -4,7 +4,6 @@ import ctypes
 from typing import Any
 
 import torch
-from vllm.worker.multi_step_model_runner import MultiStepModelRunner
 
 
 def patch_allocator() -> None:
@@ -18,7 +17,7 @@ def patch_allocator() -> None:
         libcudart,
         unmap_and_release,
     )
-    from vllm.utils import is_pin_memory_available
+    from vllm.utils.platform_utils import is_pin_memory_available
 
     allocator = CuMemAllocator.get_instance()
 
@@ -123,23 +122,35 @@ def patch_lora_request() -> None:
 
 
 def patch_get_lora_tokenizer_async() -> None:
-    import vllm.transformers_utils.tokenizer
-    import vllm.transformers_utils.tokenizer_group
+    # This patch was for vLLM < 0.12. In vLLM 0.12+, the tokenizer_group module
+    # and get_lora_tokenizer_async don't exist, so this patch is skipped.
+    try:
+        import vllm.transformers_utils.tokenizer
 
-    async def patch(*_: Any, **__: Any) -> None:
-        return None
+        async def patch(*_: Any, **__: Any) -> None:
+            return None
 
-    vllm.transformers_utils.tokenizer.get_lora_tokenizer_async = patch  # type: ignore
-    vllm.transformers_utils.tokenizer_group.get_lora_tokenizer_async = (  # type: ignore
-        patch
-    )
+        if hasattr(vllm.transformers_utils.tokenizer, "get_lora_tokenizer_async"):
+            vllm.transformers_utils.tokenizer.get_lora_tokenizer_async = patch  # type: ignore
 
-    async def patch2(self, *args: Any, **kwargs: Any) -> None:
-        return self.tokenizer
+        try:
+            import vllm.transformers_utils.tokenizer_group
 
-    vllm.transformers_utils.tokenizer_group.TokenizerGroup.get_lora_tokenizer_async = (
-        patch2  # type: ignore
-    )
+            vllm.transformers_utils.tokenizer_group.get_lora_tokenizer_async = (  # type: ignore
+                patch
+            )
+
+            async def patch2(self, *args: Any, **kwargs: Any) -> None:
+                return self.tokenizer
+
+            if hasattr(vllm.transformers_utils.tokenizer_group, "TokenizerGroup"):
+                vllm.transformers_utils.tokenizer_group.TokenizerGroup.get_lora_tokenizer_async = (
+                    patch2  # type: ignore
+                )
+        except ModuleNotFoundError:
+            pass  # Module doesn't exist in vLLM 0.12+
+    except Exception:
+        pass
 
 
 def patch_listen_for_disconnect() -> None:
@@ -183,15 +194,3 @@ def patch_tool_parser_manager() -> None:
         return tool_parser_class
 
     ToolParserManager.get_tool_parser = patched_get_tool_parser
-
-
-def patch_multi_step_model_runner(runner: MultiStepModelRunner) -> None:
-    """
-    Patches a MultiStepModelRunner to support LoRA adapters.
-    """
-    base_runner = runner._base_model_runner
-    runner.set_active_loras = base_runner.set_active_loras
-    runner.add_lora = base_runner.add_lora
-    runner.remove_lora = base_runner.remove_lora
-    runner.pin_lora = base_runner.pin_lora
-    runner.list_loras = base_runner.list_loras
