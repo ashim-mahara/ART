@@ -12,7 +12,6 @@ import aiohttp
 import numpy as np
 import polars as pl
 import torch
-import wandb
 import weave
 from openai import AsyncOpenAI
 from tqdm import auto as tqdm
@@ -20,9 +19,9 @@ from transformers import AutoImageProcessor, AutoTokenizer
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from typing_extensions import Self
-from wandb.sdk.wandb_run import Run
 from weave.trace.weave_client import WeaveClient
 
+import wandb
 from art.utils.deployment import (
     DeploymentResult,
     Provider,
@@ -45,6 +44,7 @@ from art.utils.s3 import (
 )
 from art.utils.trajectory_logging import write_trajectory_groups_parquet
 from mp_actors import close_proxy, move_to_child_process
+from wandb.sdk.wandb_run import Run
 
 from .. import dev
 from ..backend import Backend
