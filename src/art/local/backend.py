@@ -156,6 +156,8 @@ class LocalBackend(Backend):
 
                 service_class = TinkerService
             elif config.get("_async_rl", False):
+                from ..unsloth.async_service import AsyncService
+
                 service_class = AsyncService
                 logger.info("[BACKEND] Using AsyncService")
             else:
