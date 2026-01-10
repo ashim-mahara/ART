@@ -174,6 +174,7 @@ class LocalBackend(Backend):
         advantage_balance: float,
         allow_training_without_logprobs: bool,
         scale_rewards: bool,
+        normalize_by_length: bool,
         plot_tensors: bool,
     ) -> PackedTensors | None:
         if model.base_model not in self._tokenizers:
@@ -195,6 +196,7 @@ class LocalBackend(Backend):
                 allow_training_without_logprobs,
                 scale_rewards,
                 image_processor=self._image_processors[model.base_model],
+                normalize_by_length=normalize_by_length,
             )
         )
         if not tokenized_results:
@@ -458,6 +460,7 @@ class LocalBackend(Backend):
                 "allow_training_without_logprobs", False
             ),
             scale_rewards=dev_config.get("scale_rewards", True),
+            normalize_by_length=dev_config.get("normalize_by_length", True),
             plot_tensors=dev_config.get("plot_tensors", False),
         )
         if packed_tensors is None:

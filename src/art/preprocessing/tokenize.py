@@ -51,6 +51,7 @@ def tokenize_trajectory_groups(
     scale_rewards: bool,
     shuffle_group_trajectories: bool = True,
     image_processor: BaseImageProcessor | None = None,
+    normalize_by_length: bool = True,
 ) -> Generator["TokenizedResult", None, None]:
     for group in trajectory_groups:
         if not group:
@@ -86,9 +87,13 @@ def tokenize_trajectory_groups(
                     allow_training_without_logprobs,
                 ):
                     trajectory_results.append(result)
-            weight = 1 / (
-                sum(sum(result.assistant_mask) for result in trajectory_results) + 1e-6
-            )
+            if normalize_by_length:
+                weight = 1 / (
+                    sum(sum(result.assistant_mask) for result in trajectory_results)
+                    + 1e-6
+                )
+            else:
+                weight = 1.0
             for result in trajectory_results:
                 result.weight = weight
             results.extend(trajectory_results)
