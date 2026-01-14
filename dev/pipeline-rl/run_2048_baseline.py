@@ -2,13 +2,13 @@ import asyncio
 import math
 import random
 import string
-import xml.etree.ElementTree as ET
 from typing import Literal, TypedDict
+import xml.etree.ElementTree as ET
 
-import requests
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from pydantic import BaseModel
+import requests
 
 import art
 from art.local.backend import LocalBackend

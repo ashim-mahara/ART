@@ -18,11 +18,11 @@ import math
 import os
 import random
 import string
-import xml.etree.ElementTree as ET
 from typing import Literal
+import xml.etree.ElementTree as ET
 
-import numpy as np
 from dotenv import load_dotenv
+import numpy as np
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
