@@ -1,12 +1,12 @@
 import asyncio
-import os
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING, cast
+import os
+from typing import TYPE_CHECKING, Literal, cast
 
+from dotenv import dotenv_values
 import semver
 import sky
 import sky.clouds
-from dotenv import dotenv_values
 
 from .. import dev
 from ..backend import Backend
@@ -192,7 +192,7 @@ class SkyPilotBackend(Backend):
 
         if art_version_is_semver:
             art_installation_command = (
-                f"uv pip install openpipe-art[backend]=={art_version}"
+                f"uv pip install --system openpipe-art[backend]=={art_version}"
             )
         elif os.path.exists(art_version):
             # copy the contents of the art_path onto the new machine
@@ -267,6 +267,115 @@ class SkyPilotBackend(Backend):
         vllm_base_url = await get_vllm_base_url(self._cluster_name)
 
         return (vllm_base_url, api_key)
+
+    async def _experimental_pull_model_checkpoint(
+        self,
+        model: "TrainableModel",
+        *,
+        step: int | Literal["latest"] | None = None,
+        local_path: str | None = None,
+        s3_bucket: str,
+        prefix: str | None = None,
+        verbose: bool = False,
+    ) -> str:
+        """Pull a model checkpoint to the client machine.
+
+        For SkyPilotBackend, this always pulls from S3 to the client machine
+        (where the script is running), not to the remote cluster.
+
+        Args:
+            model: The model to pull checkpoint for.
+            step: The step to pull. Can be an int for a specific step,
+                 or "latest" to pull the latest checkpoint. If None, pulls latest.
+            local_path: Local directory to save the checkpoint. If None, uses default paths.
+            s3_bucket: S3 bucket to pull from.
+            prefix: S3 prefix.
+            verbose: Whether to print verbose output.
+
+        Returns:
+            Path to the local checkpoint directory on the client machine.
+        """
+        import os
+
+        from art.utils.output_dirs import (
+            get_default_art_path,
+            get_model_dir,
+            get_step_checkpoint_dir,
+        )
+        from art.utils.s3 import pull_model_from_s3
+        from art.utils.s3_checkpoint_utils import get_latest_checkpoint_step_from_s3
+
+        # Determine which step to use
+        resolved_step: int
+        if step is None or step == "latest":
+            # Get latest from S3
+            latest_step = await get_latest_checkpoint_step_from_s3(
+                model_name=model.name,
+                project=model.project,
+                s3_bucket=s3_bucket,
+                prefix=prefix,
+            )
+            if latest_step is None:
+                raise ValueError(
+                    f"No checkpoints found in S3 for {model.project}/{model.name}"
+                )
+            resolved_step = latest_step
+        else:
+            resolved_step = step
+
+        # Determine target location
+        art_path = get_default_art_path()
+        if local_path is not None:
+            # Custom location - copy directly to local_path
+            checkpoint_dir = local_path
+        else:
+            # Standard ART structure
+            checkpoint_dir = get_step_checkpoint_dir(
+                get_model_dir(model=model, art_path=art_path), resolved_step
+            )
+
+        # Pull from S3 to client machine
+        if verbose:
+            print(
+                f"Pulling checkpoint step {resolved_step} from S3 to client machine..."
+            )
+
+        if local_path is not None:
+            # For custom location, pull to default location first, then copy
+            await pull_model_from_s3(
+                model_name=model.name,
+                project=model.project,
+                step=resolved_step,
+                s3_bucket=s3_bucket,
+                prefix=prefix,
+                verbose=verbose,
+                art_path=art_path,
+                exclude=["logs", "trajectories"],
+            )
+            # Copy to custom location
+            temp_checkpoint_dir = get_step_checkpoint_dir(
+                get_model_dir(model=model, art_path=art_path), resolved_step
+            )
+            import shutil
+
+            os.makedirs(local_path, exist_ok=True)
+            shutil.copytree(temp_checkpoint_dir, local_path, dirs_exist_ok=True)
+            if verbose:
+                print(f"✓ Checkpoint copied to {local_path}")
+        else:
+            # Pull directly to standard location
+            await pull_model_from_s3(
+                model_name=model.name,
+                project=model.project,
+                step=resolved_step,
+                s3_bucket=s3_bucket,
+                prefix=prefix,
+                verbose=verbose,
+                art_path=art_path,
+                exclude=["logs", "trajectories"],
+            )
+
+        return checkpoint_dir
 
     async def down(self) -> None:
         await to_thread_typed(

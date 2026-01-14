@@ -7,8 +7,10 @@ from dotenv import load_dotenv
 from game_utils import possible_moves
 from gather_trajectory_groups_by_index import gather_trajectory_groups_by_index
 from rollout import ModelConfig, TicTacToeScenario, rollout
+import weave
 
 import art
+from art.utils.strip_logprobs import strip_logprobs
 
 load_dotenv()
 
@@ -22,6 +24,8 @@ CLUSTER_NAME = "art4"
 PROJECT_NAME = "tic-tac-toe"
 BASE_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 MODEL_NAME = "llama-8b-student-001"
+
+weave.init("tic-tac-toe", global_postprocess_output=strip_logprobs)
 
 
 async def main():

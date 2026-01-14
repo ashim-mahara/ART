@@ -1,11 +1,11 @@
-import math
-import random
 from dataclasses import dataclass
 from itertools import takewhile
-from typing import Generator, cast
+import math
+import random
+from typing import Any, Generator, cast
 
-import torch
 from PIL import Image
+import torch
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
@@ -106,6 +106,17 @@ def tokenize_trajectory_groups(
                 )
             )
         )
+        first_non_nan_index = min(
+            (
+                next(
+                    (i for i, lp in enumerate(r.logprobs) if not math.isnan(lp)),
+                    len(r.logprobs),
+                )
+                for r in results
+            ),
+            default=0,
+        )
+        prompt_length = max(min(prompt_length, first_non_nan_index) - 1, 0)
         # Set the prompt id and length
         for result in results:
             result.prompt_id = prompt_id
@@ -143,11 +154,17 @@ def tokenize_trajectory(
         return None
     messages_and_choices = history.messages_and_choices[: last_assistant_index + 1]
     messages = get_messages(messages_and_choices)
+    tools: Any = (
+        [{"type": "function", "function": tool} for tool in history.tools]
+        if history.tools is not None
+        else None
+    )
     chat = cast(
         str,
         tokenizer.apply_chat_template(
             cast(list[dict], messages),
-            tools=history.tools,  # type: ignore
+            tools=tools,  # type: ignore
+            continue_final_message=True,
             tokenize=False,
         ),
     )
@@ -155,7 +172,8 @@ def tokenize_trajectory(
         list[int],
         tokenizer.apply_chat_template(
             cast(list[dict], messages),
-            tools=history.tools,  # type: ignore
+            tools=tools,  # type: ignore
+            continue_final_message=True,
         ),
     )
     sentinal_token_id = max(
@@ -180,7 +198,8 @@ def tokenize_trajectory(
                     for message_or_choice in messages_and_choices
                 ],
             ),
-            tools=history.tools,  # type: ignore
+            tools=tools,  # type: ignore
+            continue_final_message=True,
         ),
     )
     assistant_mask: list[int] = [0] * len(token_ids)
@@ -190,6 +209,10 @@ def tokenize_trajectory(
             continue
         start = token_ids.index(sentinal_token_id)
         end = start + 1
+        try:
+            end_token_id = token_ids[end]
+        except IndexError:
+            end_token_id = None
         if isinstance(message, dict):
             content = message.get("content")
             assert isinstance(content, str)
@@ -233,6 +256,10 @@ def tokenize_trajectory(
                 token_logprob.logprob for token_logprob in token_logprobs
             )
             assistant_mask[start:end] = [1] * len(token_logprobs)
+            if token_ids[start + len(token_logprobs) - 1] == end_token_id:
+                token_ids.pop(start + len(token_logprobs))
+                logprobs.pop(start + len(token_logprobs))
+                assistant_mask.pop(start + len(token_logprobs))
     if image_processor:
         images: list[Image.Image] = []
         for message in messages_and_choices:

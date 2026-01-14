@@ -1,9 +1,9 @@
 """OpenAI-compatible server functionality for vLLM."""
 
 import asyncio
+from contextlib import asynccontextmanager
 import logging
 import os
-from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Coroutine
 
 from openai import AsyncOpenAI
@@ -11,7 +11,8 @@ from uvicorn.config import LOGGING_CONFIG
 from vllm.engine.protocol import EngineClient
 from vllm.entrypoints.openai.cli_args import make_arg_parser, validate_parsed_serve_args
 from vllm.logger import _DATE_FORMAT, _FORMAT
-from vllm.utils import FlexibleArgumentParser
+from vllm.logging_utils import NewLineFormatter
+from vllm.utils.argparse_utils import FlexibleArgumentParser
 
 from ..dev.openai_server import OpenAIServerConfig
 
@@ -47,20 +48,24 @@ async def openai_server_task(
     patch_tool_parser_manager()
     set_vllm_log_file(config.get("log_file", "vllm.log"))
 
-    # Patch engine.add_lora; hopefully temporary
+    # Patch engine.add_lora to ensure lora_tensors attribute exists
+    # This is needed for compatibility with Unsloth
     add_lora = engine.add_lora
 
-    async def _add_lora(lora_request) -> None:
-        class LoRARequest:
-            def __getattr__(self, name: str) -> Any:
-                if name == "lora_tensors" and not hasattr(lora_request, name):
-                    return None
-                return getattr(lora_request, name)
+    async def _add_lora(lora_request) -> bool:
+        # Ensure lora_tensors attribute exists on the request
+        if not hasattr(lora_request, "lora_tensors"):
+            # For msgspec.Struct, we need to create a new instance with the attribute
+            from vllm.lora.request import LoRARequest
 
-            def __setattr__(self, name: str, value: Any) -> None:
-                setattr(lora_request, name, value)
-
-        await add_lora(LoRARequest())  # type: ignore
+            lora_request = LoRARequest(
+                lora_name=lora_request.lora_name,
+                lora_int_id=lora_request.lora_int_id,
+                lora_path=lora_request.lora_path,
+                long_lora_max_len=getattr(lora_request, "long_lora_max_len", None),
+                base_model_name=getattr(lora_request, "base_model_name", None),
+            )
+        return await add_lora(lora_request)
 
     engine.add_lora = _add_lora
 
@@ -177,8 +182,8 @@ def set_vllm_log_file(path: str) -> None:
     # Create a file handler
     file_handler = logging.FileHandler(path)
 
-    # Use the same formatter as vLLM's default
-    formatter = logging.Formatter(_FORMAT, _DATE_FORMAT)
+    # Use vLLM's NewLineFormatter which adds the fileinfo field
+    formatter = NewLineFormatter(fmt=_FORMAT, datefmt=_DATE_FORMAT)
     file_handler.setFormatter(formatter)
 
     # Add the handler to the logger

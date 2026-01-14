@@ -1,10 +1,9 @@
 import asyncio
-import time
-import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime
+import time
+import traceback
 from typing import (
-    Annotated,
     Any,
     AsyncGenerator,
     Awaitable,
@@ -14,9 +13,8 @@ from typing import (
     overload,
 )
 
-import pydantic
 from openai.types.chat.chat_completion import Choice
-from pydantic import SkipValidation
+import pydantic
 
 from .types import Messages, MessagesAndChoices, Tools
 
@@ -30,7 +28,7 @@ class PydanticException(pydantic.BaseModel):
 
 
 class History(pydantic.BaseModel):
-    messages_and_choices: Annotated[MessagesAndChoices, SkipValidation]
+    messages_and_choices: MessagesAndChoices
     tools: Tools | None = None
 
     def messages(self) -> Messages:
@@ -38,7 +36,7 @@ class History(pydantic.BaseModel):
 
 
 class Trajectory(pydantic.BaseModel):
-    messages_and_choices: Annotated[MessagesAndChoices, SkipValidation]
+    messages_and_choices: MessagesAndChoices
     tools: Tools | None = None
     additional_histories: list[History] = []
     reward: float
@@ -108,14 +106,7 @@ def get_messages(messages_and_choices: MessagesAndChoices) -> Messages:
                     **(
                         {
                             "tool_calls": [
-                                {
-                                    "id": tool_call.id,
-                                    "type": tool_call.type,
-                                    "function": {
-                                        "name": tool_call.function.name,
-                                        "arguments": tool_call.function.arguments,
-                                    },
-                                }
+                                tool_call.model_dump(mode="json")
                                 for tool_call in tool_calls
                             ]
                         }
@@ -172,6 +163,42 @@ class TrajectoryGroup(pydantic.BaseModel):
                 )
             ],
         )
+
+    def __copy__(self):
+        """Support for copy.copy()"""
+
+        # Create a new instance using the constructor
+        # Pass shallow copies of the lists to avoid shared mutation
+        new_instance = self.__class__(
+            trajectories=self.trajectories[:],  # Shallow copy of list
+            exceptions=[],  # Will be set below
+        )
+        # Manually copy exceptions since they're PydanticException objects
+        new_instance.exceptions = self.exceptions[:]
+        return new_instance
+
+    def __deepcopy__(self, memo: dict[int, Any] | None = None):
+        """Support for copy.deepcopy()"""
+        import copy
+
+        # Initialize memo if not provided
+        if memo is None:
+            memo = {}
+
+        # Check memo to handle circular references
+        if id(self) in memo:
+            return memo[id(self)]
+
+        # Create a new instance with deep copies
+        new_instance = self.__class__(
+            trajectories=copy.deepcopy(self.trajectories, memo),
+            exceptions=[],  # Will be set below
+        )
+        # Register in memo before deep copying attributes to handle circular refs
+        memo[id(self)] = new_instance
+        # Deep copy exceptions
+        new_instance.exceptions = copy.deepcopy(self.exceptions, memo)
+        return new_instance
 
     def __iter__(self) -> Iterator[Trajectory]:  # type: ignore[override]
         return iter(self.trajectories)

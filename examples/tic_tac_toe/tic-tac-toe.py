@@ -5,8 +5,11 @@ import random
 
 from dotenv import load_dotenv
 from rollout import TicTacToeScenario, rollout
+import weave
 
 import art
+from art.utils.deployment import TogetherDeploymentConfig, deploy_model
+from art.utils.strip_logprobs import strip_logprobs
 
 load_dotenv()
 
@@ -26,6 +29,8 @@ parser.add_argument(
     help="Backend to use for training (default: local)",
 )
 args = parser.parse_args()
+
+weave.init("tic-tac-toe", global_postprocess_output=strip_logprobs)
 
 
 async def main():
@@ -71,18 +76,28 @@ async def main():
 
     if DEPLOY_MODEL:
         print("deploying")
-        deployment_result = await backend._experimental_deploy(
-            deploy_to="together",
-            model=model,
+        # Pull checkpoint (already local since we just trained, but ensures correct path)
+        checkpoint_path = await backend._experimental_pull_model_checkpoint(
+            model,
             step=STEP,
+            s3_bucket=os.environ.get("BACKUP_BUCKET"),
             verbose=True,
-            pull_s3=False,
-            wait_for_completion=True,
         )
-        if deployment_result.status == "Failed":
-            raise Exception(f"Deployment failed: {deployment_result.failure_reason}")
 
-        deployed_model_name = deployment_result.model_name
+        # Deploy to Together
+        deployment_result = await deploy_model(
+            model=model,
+            checkpoint_path=checkpoint_path,
+            step=STEP,
+            provider="together",
+            config=TogetherDeploymentConfig(
+                s3_bucket=os.environ.get("BACKUP_BUCKET"),
+                wait_for_completion=True,
+            ),
+            verbose=True,
+        )
+
+        deployed_model_name = deployment_result.inference_model_name
 
         lora_model = art.Model(
             name=deployed_model_name,

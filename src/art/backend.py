@@ -1,11 +1,17 @@
 import json
 from typing import TYPE_CHECKING, AsyncIterator, Iterable, Literal
+import warnings
 
 import httpx
 from tqdm import auto as tqdm
 
 from art.utils import log_http_errors
-from art.utils.deploy_model import LoRADeploymentJob, LoRADeploymentProvider
+from art.utils.deployment import (
+    DeploymentResult,
+    Provider,
+    TogetherDeploymentConfig,
+    WandbDeploymentConfig,
+)
 
 from . import dev
 from .trajectories import Trajectory, TrajectoryGroup
@@ -158,10 +164,18 @@ class Backend:
     ) -> None:
         """Download the model directory from S3 into file system where the LocalBackend is running. Right now this can be used to pull trajectory logs for processing or model checkpoints.
 
+        .. deprecated::
+            This method is deprecated. Use `_experimental_pull_model_checkpoint` instead.
+
         Args:
             only_step: If specified, only pull this specific step. Can be an int for a specific step,
                       or "latest" to pull only the latest checkpoint. If None, pulls all steps.
         """
+        warnings.warn(
+            "_experimental_pull_from_s3 is deprecated. Use _experimental_pull_model_checkpoint instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         response = await self._client.post(
             "/_experimental_pull_from_s3",
             json={
@@ -238,38 +252,3 @@ class Backend:
             timeout=600,
         )
         response.raise_for_status()
-
-    @log_http_errors
-    async def _experimental_deploy(
-        self,
-        deploy_to: LoRADeploymentProvider,
-        model: "TrainableModel",
-        step: int | None = None,
-        s3_bucket: str | None = None,
-        prefix: str | None = None,
-        verbose: bool = False,
-        pull_s3: bool = True,
-        wait_for_completion: bool = True,
-    ) -> LoRADeploymentJob:
-        """
-        Deploy the model's latest checkpoint to a hosted inference endpoint.
-
-        Together is currently the only supported provider. See link for supported base models:
-        https://docs.together.ai/docs/lora-inference#supported-base-models
-        """
-        response = await self._client.post(
-            "/_experimental_deploy",
-            json={
-                "deploy_to": deploy_to,
-                "model": model.safe_model_dump(),
-                "step": step,
-                "s3_bucket": s3_bucket,
-                "prefix": prefix,
-                "verbose": verbose,
-                "pull_s3": pull_s3,
-                "wait_for_completion": wait_for_completion,
-            },
-            timeout=600,
-        )
-        response.raise_for_status()
-        return LoRADeploymentJob(**response.json())

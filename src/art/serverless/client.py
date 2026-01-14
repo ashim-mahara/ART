@@ -19,7 +19,7 @@ from openai._version import __version__
 from openai.pagination import AsyncCursorPage
 from typing_extensions import override
 
-from .trajectories import TrajectoryGroup
+from ..trajectories import TrajectoryGroup
 
 ResponseT = TypeVar("ResponseT")
 
@@ -50,8 +50,19 @@ class DeleteCheckpointsResponse(BaseModel):
 
 
 class ExperimentalTrainingConfig(TypedDict, total=False):
+    advantage_balance: float | None
+    epsilon: float | None
+    epsilon_high: float | None
+    importance_sampling_level: (
+        Literal["token", "sequence", "average", "geometric_average"] | None
+    )
+    kimi_k2_tau: float | None
     learning_rate: float | None
+    mask_prob_ratio: bool | None
+    max_negative_advantage_importance_sampling_weight: float | None
+    ppo: bool | None
     precalculate_logprobs: bool | None
+    scale_rewards: bool | None
 
 
 class TrainingJob(BaseModel):
@@ -110,6 +121,12 @@ class Models(AsyncAPIResource):
                 ],
                 "split": split,
             },
+            cast_to=type(None),
+        )
+
+    async def delete(self, *, model_id: str) -> None:
+        return await self._delete(
+            f"/preview/models/{model_id}",
             cast_to=type(None),
         )
 

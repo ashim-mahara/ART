@@ -1,5 +1,3 @@
-import torch
-
 from .engine import EngineArgs
 from .model import InitArgs, InternalModelConfig, PeftArgs, TrainerArgs
 from .torchtune import TorchtuneArgs
@@ -14,30 +12,19 @@ def get_model_config(
 
     if config is None:
         config = InternalModelConfig()
+
     enable_sleep_mode = config.get("engine_args", {}).get("enable_sleep_mode", True)
     init_args = InitArgs(
-        disable_log_stats=False,
-        enable_prefix_caching=True,
-        fast_inference=True,
-        gpu_memory_utilization=(0.79 if enable_sleep_mode else 0.55),
+        fast_inference=False,
         load_in_4bit=True,
-        max_lora_rank=8,
         max_seq_length=32768,
         model_name=base_model,
-        use_async=True,
     )
-    if config.get("_decouple_vllm_and_unsloth", False):
-        init_args["fast_inference"] = False
-        init_args.pop("disable_log_stats")
-        init_args.pop("enable_prefix_caching")
-        init_args.pop("gpu_memory_utilization")
-        init_args.pop("max_lora_rank")
-        init_args.pop("use_async")
     engine_args = EngineArgs(
         allowed_local_media_path="/tmp",
-        disable_log_requests=True,
         enable_sleep_mode=enable_sleep_mode,
         generation_config="vllm",
+        model=base_model,
     )
     engine_args.update(config.get("engine_args", {}))
     init_args.update(config.get("init_args", {}))
@@ -46,8 +33,6 @@ def get_model_config(
         if config.get("torchtune_args") is not None:
             engine_args["model"] = last_checkpoint_dir
     elif config.get("torchtune_args") is not None:
-        engine_args["model"] = base_model
-    if config.get("_decouple_vllm_and_unsloth", False):
         engine_args["model"] = base_model
     peft_args = PeftArgs(
         lora_alpha=16,
@@ -92,7 +77,7 @@ def get_model_config(
         init_args=init_args,
         engine_args=engine_args,
         peft_args=peft_args,
+        tinker_args=config.get("tinker_args"),
         trainer_args=trainer_args,
         torchtune_args=torchtune_args,
-        _decouple_vllm_and_unsloth=config.get("_decouple_vllm_and_unsloth", False),
     )
