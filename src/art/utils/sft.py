@@ -24,6 +24,25 @@ class SFTDatasetChunk:
     epoch: int
     epoch_step: int
 
+def _parse_jsonl_line(line: str) -> "Trajectory":
+    """Parse a JSONL line into a Trajectory object.
+    
+    Args:
+        line: A JSON string containing trajectory data with 'messages' and optional 'tools'.
+        
+    Returns:
+        A Trajectory object with the parsed data.
+    """
+    from art.trajectories import Trajectory
+    
+    data = json.loads(line)
+    return Trajectory(
+        messages_and_choices=data.get("messages", []),
+        tools=data.get("tools"),
+        reward=0.0,
+    )
+
+
 def get_file_row_count(file_path: str) -> int:
     """
     Count the number of non-empty rows in a JSONL file.
@@ -122,7 +141,7 @@ def create_sft_dataset_iterator(
     batch_size: int = 1,
     chunk_size: int = 50,
     peak_lr: float = 2e-4,
-    schedule_type: Literal["cosine", "linear", "constant"] = "linear",
+    schedule_type: Literal["cosine", "linear", "constant"] = "constant",
     warmup_ratio: float = 0.1,
     initial_step: int = 0,
     use_tqdm: bool = True,
@@ -138,8 +157,8 @@ def create_sft_dataset_iterator(
         epochs: Number of times to iterate over the trajectories. Default: 1
         batch_size: Number of trajectories per batch. Default: 1
         chunk_size: Number of batches per chunk. Default: 50
-        peak_lr: Peak learning rate. Default: 5e-5
-        schedule_type: Learning rate schedule type ("cosine", "linear", "constant"). Default: "linear"
+        peak_lr: Peak learning rate. Default: 2e-4
+        schedule_type: Learning rate schedule type ("cosine", "linear", "constant"). Default: "constant"
         warmup_ratio: Ratio of total steps to use for warmup (0.0 to 1.0). Default: 0.1
         initial_step: The global chunk step to start from. Default: 0.
                       Useful for resuming training.
@@ -156,15 +175,13 @@ def create_sft_dataset_iterator(
     Example:
         trajectories = [traj1, traj2, ..., traj100]
 
-        # Create SFT dataset iterator with linear schedule
+        # Create SFT dataset iterator with constant schedule (default)
         for chunk in create_sft_dataset_iterator(
             trajectories=trajectories,
             epochs=3,
             batch_size=4,
             chunk_size=10,
             peak_lr=1e-4,
-            schedule_type="linear",
-            warmup_ratio=0.1,
         ):
             # chunk.trajectories is a flat list of 40 trajectories (10 batches * 4 per batch)
             # chunk.config.custom_lr_schedule is a list of 10 learning rates (one per batch)
@@ -172,7 +189,7 @@ def create_sft_dataset_iterator(
             # chunk.step is global step number
             # chunk.epoch is current epoch
             # chunk.epoch_step is step within epoch
-            train_sft(chunk.trajectories, chunk.config)
+            await model.train_sft(chunk.trajectories, chunk.config)
 
         # Resume from chunk step 5
         for chunk in create_sft_dataset_iterator(
@@ -321,8 +338,6 @@ def iterate_file(
         for trajectory in iterate_file("data.jsonl", epochs=3, shuffle=False):
             process(trajectory)
     """
-    from art.trajectories import Trajectory
-
     if not file_path.endswith(".jsonl"):
         raise ValueError(f"Only JSONL files are supported. Got: {file_path}")
 
@@ -339,16 +354,7 @@ def iterate_file(
                     if not line.strip():
                         continue
 
-                    data = json.loads(line)
-                    messages = data.get("messages", [])
-                    tools = data.get("tools", None)
-
-                    traj = Trajectory(
-                        messages_and_choices=messages,
-                        tools=tools if tools else None,
-                        reward=0.0
-                    )
-
+                    traj = _parse_jsonl_line(line)
                     shuffle_buffer.append(traj)
 
                     # Once buffer is full, start yielding randomly
@@ -367,64 +373,4 @@ def iterate_file(
                     if not line.strip():
                         continue
 
-                    data = json.loads(line)
-                    messages = data.get("messages", [])
-                    tools = data.get("tools", None)
-
-                    yield Trajectory(
-                        messages_and_choices=messages,
-                        tools=tools if tools else None,
-                        reward=0.0
-                    )
-
-
-async def train_sft_from_file(
-    model: "TrainableModel",
-    file_path: str,
-    epochs: int,
-    learning_rate: float,
-    batch_size: int = 8,
-) -> None:
-    """
-    Convenience function to train a model with SFT from a JSONL file.
-
-    Args:
-        model: TrainableModel to train
-        file_path: Path to JSONL file containing trajectories
-        epochs: Number of epochs to train
-        learning_rate: Peak learning rate (uses cosine schedule)
-        batch_size: Number of trajectories per batch/step. Defaults to 8.
-
-    Example:
-        await train_sft_from_file(
-            model=model,
-            file_path="data.jsonl",
-            epochs=3,
-            learning_rate=1e-5,
-        )
-    """
-    from art.types import SFTConfig
-
-    # Calculate total steps - batches carry over across epochs
-    num_trajectories = get_file_row_count(file_path)
-    total_steps = math.ceil((num_trajectories * epochs) / batch_size)
-
-    # Set warmup steps: 10% of total steps, capped at 1000
-    warmup_steps = min(total_steps // 10, 1000)
-
-    # Create cosine learning rate schedule with warmup
-    custom_lr_schedule = create_lr_schedule(
-        total_steps=total_steps,
-        peak_lr=learning_rate,
-        method="linear",
-        warmup_steps=warmup_steps,
-    )
-
-    # Create SFT config with shuffling enabled
-    config = SFTConfig(custom_lr_schedule=custom_lr_schedule, batch_size=batch_size)
-
-    # Train the model
-    await model.train_sft(
-        trajectories=iterate_file(file_path, epochs=epochs),
-        config=config
-    )
+                    yield _parse_jsonl_line(line)

@@ -390,7 +390,7 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
     async def train_sft(
         self,
         trajectories: Iterable[Trajectory],
-        config: SFTConfig,
+        config: SFTConfig | None = None,
         _config: dev.SFTConfig | None = None,
         verbose: bool = False,
     ) -> None:
@@ -400,10 +400,13 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         Args:
             trajectories: An iterable of Trajectory objects.
             config: SFT configuration including learning_rates and batch_size.
+                If None, uses default SFTConfig().
             _config: Additional experimental configuration that is subject to change and
                 not yet part of the public API. Use at your own risk.
             verbose: Whether to print verbose output.
         """
+        if config is None:
+            config = SFTConfig()
         async for _ in self.backend()._train_sft(
             self, trajectories, config, _config or {}, verbose
         ):
