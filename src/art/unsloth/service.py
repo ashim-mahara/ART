@@ -432,7 +432,7 @@ class UnslothService:
         if self._sft_optimizer is None:
             self._sft_optimizer = torch.optim.AdamW(
                 peft_model.parameters(),
-                lr=1e-4,  # Default LR, will be overridden per batch
+                lr=5e-5,  # Placeholder, overridden per batch from config
                 betas=(0.9, 0.999),
                 weight_decay=0.0,
             )
@@ -459,19 +459,21 @@ class UnslothService:
             for param_group in optimizer.param_groups:
                 param_group["lr"] = batch.learning_rate
 
-            # Create num_trainable_tokens tensor on device
+            # Create num_trainable_tokens tensor for loss normalization
+            # This ensures gradient magnitude is consistent across batch sizes
             num_trainable_tokens = torch.tensor(
                 batch.num_trainable_tokens, dtype=torch.long, device=device
             )
 
-            # Process each trajectory in the batch
+            # Process each trajectory in the batch (gradient accumulation)
             for trajectory_tensor in batch.trajectory_tensors:
                 # Move tensors to device
                 input_ids = trajectory_tensor["input_ids"].to(device)
                 attention_mask = trajectory_tensor["attention_mask"].to(device)
                 labels = trajectory_tensor["labels"].to(device)
 
-                # Forward pass
+                # Forward pass with num_items_in_batch for proper loss normalization
+                # Unsloth uses this to normalize loss by total tokens across the batch
                 outputs = peft_model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -502,6 +504,7 @@ class UnslothService:
                 batch.num_trainable_tokens / batch_time if batch_time > 0 else 0.0
             )
 
+            # batch_loss is already average loss per token (normalized by num_items_in_batch)
             if verbose:
                 print(
                     f"Batch {batch_idx}: loss={batch_loss:.4f}, lr={batch.learning_rate:.2e}, "
