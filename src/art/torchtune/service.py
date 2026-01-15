@@ -123,6 +123,14 @@ class TorchtuneService:
             # remove the weights file
             Path(weights_path).unlink(missing_ok=True)
 
+    async def train_sft(
+        self,
+        sft_batches: list,
+        verbose: bool = False,
+    ) -> AsyncIterator[dict[str, float]]:
+        raise NotImplementedError("SFT training is not supported for TorchtuneService")
+        yield {}  # Make this a generator
+
     async def update_worker_weights(
         self, llm: AsyncLLM, weights_path: str, profile: bool
     ) -> None:

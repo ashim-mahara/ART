@@ -58,7 +58,7 @@ from .model import Model, TrainableModel
 from .serverless import ServerlessBackend
 from .tinker import TinkerBackend
 from .trajectories import Trajectory, TrajectoryGroup
-from .types import Messages, MessagesAndChoices, Tools, TrainConfig
+from .types import Messages, MessagesAndChoices, SFTConfig, Tools, TrainConfig
 from .utils import retry
 from .yield_trajectory import capture_yielded_trajectory, yield_trajectory
 
@@ -77,6 +77,7 @@ __all__ = [
     "Model",
     "TrainableModel",
     "retry",
+    "SFTConfig",
     "TrainConfig",
     "TinkerBackend",
     "Trajectory",

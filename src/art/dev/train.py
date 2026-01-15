@@ -31,4 +31,5 @@ positive advantages. Defaults to 0.0 (perfectly balanced)."""
 
 class SFTConfig(TypedDict, total=False):
     """Experimental SFT configuration options. Use at your own risk."""
+
     pass

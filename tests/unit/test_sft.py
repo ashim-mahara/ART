@@ -2,16 +2,14 @@
 
 import json
 import math
-import tempfile
 from pathlib import Path
-from typing import Iterable, List
+import tempfile
 
 import pytest
 
 from art.trajectories import Trajectory
 from art.types import SFTConfig
-from art.utils.iterate_dataset import iterate_file, iterate_trajectories
-from art.utils.sft import create_lr_schedule
+from art.utils.sft import create_lr_schedule, create_sft_dataset_iterator, iterate_file
 
 
 # Helper to create dummy trajectories
@@ -42,43 +40,13 @@ def create_temp_jsonl(num_trajectories: int) -> Path:
     return Path(temp_file.name)
 
 
-# Dummy train_sft for integration testing
-def dummy_train_sft(
-    trajectories: Iterable[List[Trajectory]],
-    config: SFTConfig,
-) -> dict:
-    """
-    Dummy train_sft function that collects batches and learning rates.
-
-    Args:
-        trajectories: Iterable of trajectory batches
-        config: SFT configuration with learning rates
-
-    Returns:
-        dict with:
-            - num_batches: number of batches processed
-            - total_trajectories: total number of trajectories seen
-            - learning_rates_used: list of learning rates used
-    """
-    num_batches = 0
-    total_trajectories = 0
-
-    for batch in trajectories:
-        num_batches += 1
-        total_trajectories += len(batch)
-
-    return {
-        "num_batches": num_batches,
-        "total_trajectories": total_trajectories
-    }
-
-
 # ============================================================================
 # Integration tests
 # ============================================================================
 
-def test_integration_iterate_trajectories_with_train_sft():
-    """Test using iterate_trajectories chunks with train_sft."""
+
+def test_create_sft_dataset_iterator():
+    """Test create_sft_dataset_iterator yields correct chunks."""
     trajectories = [create_dummy_trajectory(i) for i in range(20)]
 
     # batch_size=8, chunk_size=2 means each chunk has up to 2 batches of 8 trajectories
@@ -87,68 +55,83 @@ def test_integration_iterate_trajectories_with_train_sft():
     #   - Chunks per epoch: ceil(20/16) = 2 (one with 16 trajs, one with 4 trajs)
     # With 3 epochs: 2 * 3 = 6 chunks total
 
-    # Create LR schedule for up to 2 batches per chunk
-    lrs_per_chunk = create_lr_schedule(2, peak_lr=1e-4, method="linear")
-
-    # Manually iterate over chunks and train on each
-    results = []
-    for chunk in iterate_trajectories(
-        trajectories,
-        epochs=3,
-        batch_size=8,  # 8 trajectories per batch
-        chunk_size=2,  # 2 batches per chunk
-    ):
-        print(f"Chunk: {chunk}")
-        # chunk is List[List[Trajectory]] which is an Iterable[List[Trajectory]]
-        result = dummy_train_sft(
-            trajectories=chunk,
-            config=SFTConfig(learning_rate=lrs_per_chunk),
+    chunks = list(
+        create_sft_dataset_iterator(
+            trajectories,
+            epochs=3,
+            batch_size=8,  # 8 trajectories per batch
+            chunk_size=2,  # 2 batches per chunk
+            use_tqdm=False,
         )
-        results.append(result)
+    )
 
     # Should have 6 chunks total (2 per epoch * 3 epochs)
-    assert len(results) == 6
-    # Pattern repeats for each epoch: full chunk (2 batches), partial chunk (1 batch)
-    assert results[0]["num_batches"] == 2  # Epoch 1, chunk 1
-    assert results[0]["total_trajectories"] == 16
-    assert results[1]["num_batches"] == 1  # Epoch 1, chunk 2 (partial)
-    assert results[1]["total_trajectories"] == 4
-    assert results[2]["num_batches"] == 2  # Epoch 2, chunk 1
-    assert results[2]["total_trajectories"] == 16
-    assert results[3]["num_batches"] == 1  # Epoch 2, chunk 2 (partial)
-    assert results[3]["total_trajectories"] == 4
-    assert results[4]["num_batches"] == 2  # Epoch 3, chunk 1
-    assert results[4]["total_trajectories"] == 16
-    assert results[5]["num_batches"] == 1  # Epoch 3, chunk 2 (partial)
-    assert results[5]["total_trajectories"] == 4
+    assert len(chunks) == 6
 
-def test_integration_iterate_file_with_train_sft():
-    """Test using iterate_file directly with train_sft."""
+    # Pattern repeats for each epoch: full chunk (16 trajs), partial chunk (4 trajs)
+    assert len(chunks[0].trajectories) == 16  # Epoch 1, chunk 1
+    assert len(chunks[1].trajectories) == 4  # Epoch 1, chunk 2 (partial)
+    assert len(chunks[2].trajectories) == 16  # Epoch 2, chunk 1
+    assert len(chunks[3].trajectories) == 4  # Epoch 2, chunk 2 (partial)
+    assert len(chunks[4].trajectories) == 16  # Epoch 3, chunk 1
+    assert len(chunks[5].trajectories) == 4  # Epoch 3, chunk 2 (partial)
+
+    # Verify chunk metadata
+    assert chunks[0].step == 0
+    assert chunks[0].epoch == 0
+    assert chunks[0].epoch_step == 0
+
+    assert chunks[1].step == 1
+    assert chunks[1].epoch == 0
+    assert chunks[1].epoch_step == 1
+
+
+def test_iterate_file():
+    """Test iterate_file reads trajectories correctly."""
+    jsonl_file = create_temp_jsonl(10)
+
+    try:
+        # Read without shuffle
+        trajectories = list(
+            iterate_file(
+                str(jsonl_file),
+                epochs=2,
+                shuffle=False,
+            )
+        )
+
+        # Should have 20 trajectories (10 per epoch * 2 epochs)
+        assert len(trajectories) == 20
+
+        # Verify the content - first epoch should be in order
+        for i in range(10):
+            assert f"Message {i}" in str(trajectories[i].messages_and_choices)
+
+    finally:
+        jsonl_file.unlink()
+
+
+def test_iterate_file_with_shuffle():
+    """Test iterate_file with shuffle enabled."""
     jsonl_file = create_temp_jsonl(100)
 
     try:
-        # Create learning rate schedule
-        total_steps = math.ceil((100 * 2) / 3)  # 10 trajectories, 2 epochs, batch_size=3
-        lrs = create_lr_schedule(total_steps, peak_lr=1e-4, method="constant")
-
-        config = SFTConfig(learning_rate=lrs)
-
-        # Pass iterate_file directly to train_sft
-        result = dummy_train_sft(
-            trajectories=iterate_file(
+        # Read with shuffle
+        trajectories = list(
+            iterate_file(
                 str(jsonl_file),
                 epochs=2,
-                batch_size=3,
                 shuffle=True,
-            ),
-            config=config,
+                shuffle_buffer_size=10,
+            )
         )
 
-        # Should process 7 batches: [3, 3, 3, 3, 3, 3, 2]
-        assert result["num_batches"] == 67
-        assert result["total_trajectories"] == 200
+        # Should have 200 trajectories
+        assert len(trajectories) == 200
+
     finally:
         jsonl_file.unlink()
+
 
 # def test_total_steps_calculation():
 #     """Test that total steps calculation matches actual batches."""

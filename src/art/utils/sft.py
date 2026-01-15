@@ -1,9 +1,9 @@
 """Utilities for supervised fine-tuning (SFT)."""
 
+from dataclasses import dataclass
 import json
 import math
 import random
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generator, List, Literal
 
 from tqdm.auto import tqdm
@@ -24,17 +24,18 @@ class SFTDatasetChunk:
     epoch: int
     epoch_step: int
 
+
 def _parse_jsonl_line(line: str) -> "Trajectory":
     """Parse a JSONL line into a Trajectory object.
-    
+
     Args:
         line: A JSON string containing trajectory data with 'messages' and optional 'tools'.
-        
+
     Returns:
         A Trajectory object with the parsed data.
     """
     from art.trajectories import Trajectory
-    
+
     data = json.loads(line)
     return Trajectory(
         messages_and_choices=data.get("messages", []),
@@ -269,7 +270,9 @@ def create_sft_dataset_iterator(
 
             for batch_idx in range(num_batches_in_chunk):
                 # Calculate global batch step
-                global_batch_step = epoch * batches_per_epoch + (chunk_start // batch_size) + batch_idx
+                global_batch_step = (
+                    epoch * batches_per_epoch + (chunk_start // batch_size) + batch_idx
+                )
                 chunk_lrs.append(custom_lr_schedule[global_batch_step])
 
             # Create SFTConfig with custom learning rate schedule
@@ -292,6 +295,7 @@ def create_sft_dataset_iterator(
 
     if progress_bar:
         progress_bar.close()
+
 
 def iterate_file(
     file_path: str,
