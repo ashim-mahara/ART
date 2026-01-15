@@ -21,7 +21,7 @@ async def train_sft(
 ) -> None:
     """
     Train an SFT model using batches from a queue.
-    
+
     Args:
         trainer: TRL SFTTrainer instance
         input_queue: Queue containing SFTBatch objects
@@ -29,10 +29,10 @@ async def train_sft(
     """
     _get_batch_samples = trainer.get_batch_samples
     _log = trainer.log
-    
+
     trainer.get_batch_samples = get_batch_samples_fn(trainer, input_queue)
     trainer.log = get_log_fn(trainer, results_queue)
-    
+
     # Ensure we have a metrics container in the expected format
     try:
         is_dict = isinstance(getattr(trainer, "_metrics", None), dict)
@@ -41,7 +41,7 @@ async def train_sft(
         is_train_dict = False
     if not is_train_dict:
         trainer._metrics = {"train": defaultdict(list)}
-    
+
     try:
         trainer.train()
     finally:
@@ -60,7 +60,7 @@ def get_batch_samples_fn(
     3. Sets gradient accumulation steps
     4. Returns batch samples and num_items_in_batch as tensor
     """
-    
+
     def get_batch_samples(
         epoch_iterator: Iterator,
         num_batches: int,
@@ -68,49 +68,47 @@ def get_batch_samples_fn(
     ) -> tuple[list[dict[str, torch.Tensor]], torch.Tensor]:
         """
         Override get_batch_samples to read from queue instead of epoch_iterator.
-        
+
         Returns:
             tuple of (batch_samples, num_items_in_batch as tensor int)
         """
+
         # Read SFTBatch from queue asynchronously
         async def get_sft_batch() -> "SFTBatch":
             return await input_queue.get()
-        
+
         # Get the batch from queue
         sft_batch: "SFTBatch" = asyncio.run(get_sft_batch())
-        
+
         # Set learning rate for this batch
         if optimizer := trainer.optimizer:
             optimizer = getattr(optimizer, "optimizer", optimizer)
             if param_groups := getattr(optimizer, "param_groups"):
                 for param_group in param_groups:
                     param_group["lr"] = sft_batch.learning_rate
-        
+
         # Set gradient accumulation steps to number of trajectories
         # We're doing micro-batch size 1, so accumulate across all trajectories
         if hasattr(trainer.args, "gradient_accumulation_steps"):
             trainer.args.gradient_accumulation_steps = sft_batch.num_trajectories
-        
+
         # Convert each trajectory to a separate sample for micro-batching
         # Trainer will process each sample individually and accumulate gradients
         batch_samples = []
         for trajectory_tensor in sft_batch.trajectory_tensors:
             # Move each trajectory's tensors to device
             sample = {
-                key: tensor.to(device)
-                for key, tensor in trajectory_tensor.items()
+                key: tensor.to(device) for key, tensor in trajectory_tensor.items()
             }
             batch_samples.append(sample)
-        
+
         # Return batch samples and num_items_in_batch as tensor (on device)
         num_items_in_batch = torch.tensor(
-            sft_batch.num_trajectories, 
-            dtype=torch.long,
-            device=device
+            sft_batch.num_trajectories, dtype=torch.long, device=device
         )
-        
+
         return batch_samples, num_items_in_batch
-    
+
     return get_batch_samples
 
 
@@ -122,6 +120,7 @@ def get_log_fn(
     Create a logging function that sends metrics to the results queue.
     Same pattern as GRPO trainer.
     """
+
     def log(logs: dict[str, float], start_time: float | None = None) -> None:
         """Log metrics and send to results queue."""
         metrics = {
@@ -137,5 +136,5 @@ def get_log_fn(
         logs.pop("learning_rate", None)
         results_queue.put_nowait(logs)
         trainer._metrics["train"].clear()
-    
+
     return log

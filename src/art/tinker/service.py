@@ -180,6 +180,14 @@ class TinkerService:
             state.training_client,
         )
 
+    async def train_sft(
+        self,
+        sft_batches: list,
+        verbose: bool = False,
+    ) -> AsyncIterator[dict[str, float]]:
+        raise NotImplementedError("SFT training is not supported for TinkerService")
+        yield {}  # Make this a generator
+
     async def delete_checkpoints(self, steps_to_keep: list[int]) -> None:
         state = await self._state_task
         await asyncio.gather(

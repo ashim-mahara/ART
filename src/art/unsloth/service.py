@@ -261,6 +261,7 @@ class UnslothService:
     config: dev.InternalModelConfig
     output_dir: str
     _is_sleeping: bool = False
+    _sft_optimizer: torch.optim.AdamW | None = None
 
     async def start_openai_server(self, config: dev.OpenAIServerConfig | None) -> None:
         lora_path = get_last_checkpoint_dir(self.output_dir)
@@ -386,6 +387,170 @@ class UnslothService:
 
         if verbose:
             print("UnslothService.train complete")
+
+    async def train_sft(
+        self,
+        sft_batches: list,
+        verbose: bool = False,
+    ) -> AsyncIterator[dict[str, float]]:
+        """Train the model using supervised fine-tuning.
+
+        Args:
+            sft_batches: List of SFTBatch objects from tokenize_sft_batches
+            verbose: Whether to print detailed logs
+
+        Yields:
+            Dictionary containing training metrics for each batch
+        """
+        llm = await self.llm
+
+        # Pause generation to prevent new requests during training
+        await llm.pause_generation()
+
+        # Determine sleep level based on outstanding requests
+        has_unfinished = llm.output_processor.has_unfinished_requests()
+        if has_unfinished:
+            sleep_level = 1
+        else:
+            await llm.reset_prefix_cache()
+            sleep_level = 2
+
+        # Put workers to sleep
+        await run_on_workers(llm, do_sleep, level=sleep_level)
+        self._is_sleeping = True
+        gc_and_empty_cuda_cache()
+
+        # Reload training model to GPU (after vLLM is asleep)
+        self._state.reload_to_gpu()
+
+        # Get model
+        peft_model = self._state.peft_model
+
+        # Create dedicated SFT optimizer if it doesn't exist
+        # This is separate from the RL optimizer (trainer.optimizer) to ensure
+        # clean optimizer state for each training type
+        if self._sft_optimizer is None:
+            self._sft_optimizer = torch.optim.AdamW(
+                peft_model.parameters(),
+                lr=1e-4,  # Default LR, will be overridden per batch
+                betas=(0.9, 0.999),
+                weight_decay=0.0,
+            )
+        optimizer = self._sft_optimizer
+
+        # Reset environment variable that may be set by RL training
+        os.environ["UNSLOTH_RETURN_HIDDEN_STATES"] = "0"
+
+        peft_model.train()
+        optimizer.zero_grad()
+        device = next(peft_model.parameters()).device
+        max_grad_norm = 1.0
+
+        if verbose:
+            print(f"Training SFT on {len(sft_batches)} batches")
+
+        import time
+
+        for batch_idx, batch in enumerate(sft_batches):
+            batch_start_time = time.perf_counter()
+            batch_loss = 0.0
+
+            # Update learning rate for this batch
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = batch.learning_rate
+
+            # Create num_trainable_tokens tensor on device
+            num_trainable_tokens = torch.tensor(
+                batch.num_trainable_tokens, dtype=torch.long, device=device
+            )
+
+            # Process each trajectory in the batch
+            for trajectory_tensor in batch.trajectory_tensors:
+                # Move tensors to device
+                input_ids = trajectory_tensor["input_ids"].to(device)
+                attention_mask = trajectory_tensor["attention_mask"].to(device)
+                labels = trajectory_tensor["labels"].to(device)
+
+                # Forward pass
+                outputs = peft_model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    num_items_in_batch=num_trainable_tokens,
+                )
+
+                loss = outputs.loss
+
+                # Backward pass - accumulate gradients
+                loss.backward()
+
+                # Track metrics
+                batch_loss += loss.item()
+
+            # Compute gradient norm before clipping (like TRL does)
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                peft_model.parameters(), max_grad_norm
+            ).item()
+
+            # Optimizer step at the end of each batch
+            optimizer.step()
+            optimizer.zero_grad()
+
+            # Compute timing metrics
+            batch_time = time.perf_counter() - batch_start_time
+            tokens_per_second = (
+                batch.num_trainable_tokens / batch_time if batch_time > 0 else 0.0
+            )
+
+            if verbose:
+                print(
+                    f"Batch {batch_idx}: loss={batch_loss:.4f}, lr={batch.learning_rate:.2e}, "
+                    f"grad_norm={grad_norm:.4f}, tok/s={tokens_per_second:.1f}"
+                )
+
+            # Yield metrics (similar to TRL SFTTrainer)
+            yield {
+                "loss": batch_loss,
+                "learning_rate": batch.learning_rate,
+                "grad_norm": grad_norm,
+                "num_trajectories": float(batch.num_trajectories),
+                "num_trainable_tokens": float(batch.num_trainable_tokens),
+                "tokens_per_second": tokens_per_second,
+            }
+
+        # Save checkpoint after training
+        checkpoint_dir = save_checkpoint(
+            trainer=self._state.trainer,
+            output_dir=self.output_dir,
+            verbose=verbose,
+        )
+
+        # Offload training model to CPU before waking vLLM
+        self._state.offload_to_cpu()
+
+        # Free memory before waking up vLLM
+        gc_and_empty_cuda_cache()
+        await asyncio.sleep(0.5)
+
+        # Wake up workers
+        await run_on_workers(llm, do_wake_up)
+        self._is_sleeping = False
+
+        # Swap out the LoRA adapter with the newly trained checkpoint
+        await llm.remove_lora(1)
+        await llm.add_lora(
+            LoRARequest(
+                lora_name=self.model_name,
+                lora_int_id=1,
+                lora_path=checkpoint_dir,
+            )
+        )
+
+        # Resume generation after LoRA swap is complete
+        await llm.resume_generation()
+
+        if verbose:
+            print("UnslothService.train_sft complete")
 
     @cached_property
     def _state(self) -> UnslothState:
