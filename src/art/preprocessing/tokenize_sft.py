@@ -72,6 +72,11 @@ def tokenize_sft_batches(
             f"yields {expected_num_batches} batches, but got {num_learning_rates} learning_rates"
         )
 
+    # Handle missing pad_token_id (common for LLaMA and similar models)
+    pad_token_id = tokenizer.pad_token_id
+    if pad_token_id is None:
+        pad_token_id = tokenizer.eos_token_id
+
     # Get most common tokens using Unsloth approach
     Q_must, Q_left, Q_right = _find_common_token_ids(
         instruction_part, tokenizer, force_match=False
@@ -218,7 +223,7 @@ def tokenize_sft_batches(
             # Pad to max_seq_length
             padding_length = max_seq_length - len(input_ids)
             if padding_length > 0:
-                input_ids = input_ids + [tokenizer.pad_token_id] * padding_length
+                input_ids = input_ids + [pad_token_id] * padding_length
                 attention_mask = attention_mask + [0] * padding_length
                 labels = labels + [-100] * padding_length
 

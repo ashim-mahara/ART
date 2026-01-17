@@ -646,25 +646,27 @@ class LocalBackend(Backend):
             print("Using service.train_sft")
 
         num_batches = len(sft_batches)
-        results: list[dict[str, float]] = []
-        pbar = tqdm.tqdm(total=num_batches, desc="sft")
+        pbar = tqdm.tqdm(total=num_batches, desc="Processing chunk", leave=False)
 
+        # Calculate starting step for per-batch logging
+        # global_step is the step at END of chunk, so starting step is global_step - num_batches
+        if config.global_step is not None:
+            start_step = config.global_step - num_batches
+        else:
+            start_step = self.__get_step(model)
+
+        batch_idx = 0
         async for result in service.train_sft(sft_batches, verbose):
-            results.append(result)
             pbar.update(1)
             pbar.set_postfix({"loss": f"{result.get('loss', 0):.4f}"})
+
+            # Log metrics for each individual batch
+            current_step = start_step + batch_idx + 1
+            self._log_metrics(model, result, "train", step=current_step)
+            batch_idx += 1
+
             yield result
         pbar.close()
-
-        # Log aggregated metrics at the final step
-        if results:
-            data = {
-                k: sum(d.get(k, 0) for d in results) / sum(1 for d in results if k in d)
-                for k in {k for d in results for k in d}
-            }
-            # Get the current step after training (checkpoint was saved)
-            current_step = self.__get_step(model)
-            self._log_metrics(model, data, "train", step=current_step)
 
         if verbose:
             print("_train_sft complete")

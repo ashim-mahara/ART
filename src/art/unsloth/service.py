@@ -459,24 +459,26 @@ class UnslothService:
             for param_group in optimizer.param_groups:
                 param_group["lr"] = batch.learning_rate
 
-            # Create num_trainable_tokens tensor on device
-            num_trainable_tokens = torch.tensor(
+            # Total trainable tokens for loss normalization (normalizes by tokens, not trajectories)
+            # This ensures each token contributes equally regardless of how trajectories are split
+            num_items_in_batch = torch.tensor(
                 batch.num_trainable_tokens, dtype=torch.long, device=device
             )
 
-            # Process each trajectory in the batch
+            # Process each trajectory in the batch (gradient accumulation)
             for trajectory_tensor in batch.trajectory_tensors:
                 # Move tensors to device
                 input_ids = trajectory_tensor["input_ids"].to(device)
                 attention_mask = trajectory_tensor["attention_mask"].to(device)
                 labels = trajectory_tensor["labels"].to(device)
 
-                # Forward pass
+                # Forward pass with num_items_in_batch for proper loss normalization
+                # Loss = sum(cross_entropy) / num_items_in_batch
                 outputs = peft_model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     labels=labels,
-                    num_items_in_batch=num_trainable_tokens,
+                    num_items_in_batch=num_items_in_batch,
                 )
 
                 loss = outputs.loss
@@ -487,7 +489,7 @@ class UnslothService:
                 # Track metrics
                 batch_loss += loss.item()
 
-            # Compute gradient norm before clipping (like TRL does)
+            # Gradient clipping
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 peft_model.parameters(), max_grad_norm
             ).item()
@@ -508,7 +510,7 @@ class UnslothService:
                     f"grad_norm={grad_norm:.4f}, tok/s={tokens_per_second:.1f}"
                 )
 
-            # Yield metrics (similar to TRL SFTTrainer)
+            # Yield metrics
             yield {
                 "loss": batch_loss,
                 "learning_rate": batch.learning_rate,

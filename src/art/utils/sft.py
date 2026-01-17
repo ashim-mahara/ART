@@ -156,22 +156,23 @@ def create_sft_dataset_iterator(
     Args:
         trajectories: List of Trajectory objects to train on
         epochs: Number of times to iterate over the trajectories. Default: 1
-        batch_size: Number of trajectories per batch. Default: 1
-        chunk_size: Number of batches per chunk. Default: 50
+        batch_size: Number of trajectories per batch (one weight update per batch). Default: 1
+        chunk_size: Number of batches to process per train_sft call. Default: 50.
+                    This is an internal optimization parameter and does not affect training.
         peak_lr: Peak learning rate. Default: 2e-4
         schedule_type: Learning rate schedule type ("cosine", "linear", "constant"). Default: "constant"
         warmup_ratio: Ratio of total steps to use for warmup (0.0 to 1.0). Default: 0.1
-        initial_step: The global chunk step to start from. Default: 0.
+        initial_step: The global training step (batch) to start from. Default: 0.
                       Useful for resuming training.
         use_tqdm: Whether to display a progress bar. Default: True
 
     Yields:
         SFTDatasetChunk containing:
-            - trajectories: Flattened list of trajectories (chunk_size * batch_size trajectories)
+            - trajectories: Flattened list of trajectories for this chunk
             - config: SFTConfig with custom_lr_schedule containing learning rates for each batch
-            - step: Global step number across all epochs
+            - step: Global training step (batch number) at the start of this chunk
             - epoch: Current epoch number (0-indexed)
-            - epoch_step: Step number within current epoch (0-indexed)
+            - epoch_step: Training step within current epoch (0-indexed)
 
     Example:
         trajectories = [traj1, traj2, ..., traj100]
@@ -184,23 +185,23 @@ def create_sft_dataset_iterator(
             chunk_size=10,
             peak_lr=1e-4,
         ):
-            # chunk.trajectories is a flat list of 40 trajectories (10 batches * 4 per batch)
-            # chunk.config.custom_lr_schedule is a list of 10 learning rates (one per batch)
+            # chunk.trajectories is a flat list of up to 40 trajectories
+            # chunk.config.custom_lr_schedule is a list of learning rates (one per batch)
             # chunk.config.batch_size is 4
-            # chunk.step is global step number
+            # chunk.step is global training step (weight update number)
             # chunk.epoch is current epoch
-            # chunk.epoch_step is step within epoch
+            # chunk.epoch_step is training step within epoch
             await model.train_sft(chunk.trajectories, chunk.config)
 
-        # Resume from chunk step 5
+        # Resume from training step 50
         for chunk in create_sft_dataset_iterator(
             trajectories=trajectories,
             epochs=3,
             batch_size=4,
             chunk_size=10,
-            initial_step=5,
+            initial_step=50,
         ):
-            # Starts from chunk step 5
+            # Starts from training step 50
             pass
     """
     from art.types import SFTConfig
@@ -228,15 +229,17 @@ def create_sft_dataset_iterator(
     # Calculate chunk iteration parameters
     items_per_chunk = batch_size * chunk_size
     chunks_per_epoch = math.ceil(dataset_size / items_per_chunk)
-    total_steps = chunks_per_epoch * epochs
+
+    # Convert initial_step (batch-based) to initial_chunk for skipping
+    initial_chunk = initial_step // chunk_size
 
     progress_bar = None
     if use_tqdm:
         progress_bar = tqdm(
             initial=initial_step,
-            total=total_steps,
+            total=total_batch_steps,
             desc="Training SFT",
-            unit="chunk",
+            unit="step",
         )
 
     for epoch in range(epochs):
@@ -246,12 +249,11 @@ def create_sft_dataset_iterator(
         random.shuffle(indices)
 
         for chunk_idx in range(chunks_per_epoch):
-            # Calculate step numbers
-            epoch_step = chunk_idx
-            global_step = epoch * chunks_per_epoch + chunk_idx
+            # Calculate global chunk index for skipping
+            global_chunk_idx = epoch * chunks_per_epoch + chunk_idx
 
-            # Skip if before initial_step
-            if global_step < initial_step:
+            # Skip if before initial_chunk
+            if global_chunk_idx < initial_chunk:
                 continue
 
             # Get indices for this chunk
@@ -268,30 +270,36 @@ def create_sft_dataset_iterator(
             chunk_lrs: List[float] = []
             num_batches_in_chunk = math.ceil(len(step_indices) / batch_size)
 
+            # Calculate global batch step at the start of this chunk
+            global_batch_step = (
+                epoch * batches_per_epoch + (chunk_start // batch_size)
+            )
+
             for batch_idx in range(num_batches_in_chunk):
-                # Calculate global batch step
-                global_batch_step = (
-                    epoch * batches_per_epoch + (chunk_start // batch_size) + batch_idx
-                )
-                chunk_lrs.append(custom_lr_schedule[global_batch_step])
+                chunk_lrs.append(custom_lr_schedule[global_batch_step + batch_idx])
 
             # Create SFTConfig with custom learning rate schedule
+            # global_step is the step at the END of this chunk (for wandb logging)
             config = SFTConfig(
                 batch_size=batch_size,
                 custom_lr_schedule=chunk_lrs,
+                global_step=global_batch_step + num_batches_in_chunk,
             )
+
+            # epoch_step is the batch step within the current epoch
+            epoch_batch_step = chunk_start // batch_size
 
             yield SFTDatasetChunk(
                 trajectories=chunk_trajectories,
                 config=config,
-                step=global_step,
+                step=global_batch_step,
                 epoch=epoch,
-                epoch_step=epoch_step,
+                epoch_step=epoch_batch_step,
             )
 
-            # Update progress bar after yielding
+            # Update progress bar by the number of batches in this chunk
             if progress_bar:
-                progress_bar.update(1)
+                progress_bar.update(num_batches_in_chunk)
 
     if progress_bar:
         progress_bar.close()

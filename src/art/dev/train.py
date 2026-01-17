@@ -30,6 +30,14 @@ positive advantages. Defaults to 0.0 (perfectly balanced)."""
 
 
 class SFTConfig(TypedDict, total=False):
-    """Experimental SFT configuration options. Use at your own risk."""
+    """Experimental SFT configuration options. Use at your own risk.
 
-    pass
+    Undocumented options (may change):
+        instruction_part: Override auto-detected instruction marker for tokenization.
+            Used to identify where user turns begin in the chat template.
+        response_part: Override auto-detected response marker for tokenization.
+            Used to identify where assistant turns begin (train on responses only).
+    """
+
+    instruction_part: str
+    response_part: str
