@@ -9,7 +9,7 @@ repos:
     hooks:
       - id: ty
         name: ty type checking
-        entry: uv run ty check src tests
+        entry: uv run ty check src tests --ignore unused-ignore-comment
         language: system
         pass_filenames: false
 
