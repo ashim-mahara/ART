@@ -44,6 +44,18 @@ async def openai_server_task(
     subclass_chat_completion_request()
     from vllm.entrypoints.openai import api_server
 
+    # Capture the OpenAIServingModels instance so dynamically added LoRAs
+    # are reflected in the model list.
+    if not hasattr(api_server, "_art_openai_serving_models"):
+        api_server._art_openai_serving_models = None
+        original_init = api_server.OpenAIServingModels.__init__
+
+        def _init(self, *args: Any, **kwargs: Any) -> None:
+            original_init(self, *args, **kwargs)
+            api_server._art_openai_serving_models = self
+
+        api_server.OpenAIServingModels.__init__ = _init
+
     patch_listen_for_disconnect()
     patch_tool_parser_manager()
     set_vllm_log_file(config.get("log_file", "vllm.log"))
@@ -65,7 +77,12 @@ async def openai_server_task(
                 long_lora_max_len=getattr(lora_request, "long_lora_max_len", None),
                 base_model_name=getattr(lora_request, "base_model_name", None),
             )
-        return await add_lora(lora_request)
+        added = await add_lora(lora_request)
+        if added:
+            models = getattr(api_server, "_art_openai_serving_models", None)
+            if models is not None:
+                models.lora_requests[lora_request.lora_name] = lora_request
+        return added
 
     engine.add_lora = _add_lora
 
