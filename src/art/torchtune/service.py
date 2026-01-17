@@ -192,7 +192,7 @@ class TorchtuneService:
 
         program_and_args = [
             "python",  # Use Python interpreter
-            f"{os.path.dirname(torchtune.__file__)}/_cli/tune.py",
+            f"{os.path.dirname(torchtune.__file__)}/_cli/tune.py",  # ty:ignore[no-matching-overload]
             "run",
             "--nproc-per-node",
             str(torch.cuda.device_count()),

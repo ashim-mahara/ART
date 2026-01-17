@@ -39,7 +39,7 @@ class TinkerBackend(LocalBackend):
                 renderer_name=get_renderer_name(model.base_model)
             )
             config["tinker_args"]["training_client_args"] = (
-                config["tinker_args"].get("training_client_args") or {}
+                config["tinker_args"].get("training_client_args") or {}  # ty:ignore[invalid-assignment]
             )
             self._services[model.name] = TinkerService(
                 model_name=model.name,

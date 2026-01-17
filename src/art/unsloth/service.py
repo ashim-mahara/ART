@@ -57,7 +57,7 @@ def precalculate_new_logprobs(
         [
             trainer.compute_loss(
                 peft_model,
-                TrainInputs(
+                TrainInputs(  # ty:ignore[missing-typed-dict-key]
                     **{
                         k: v[_offset : _offset + 1]
                         for k, v in packed_tensors.items()
@@ -465,7 +465,7 @@ class UnslothService:
         # Remove boolean flags that vLLM's argparse doesn't accept as =False
         for key in ["enable_log_requests", "disable_log_requests"]:
             engine_args.pop(key, None)
-        return asyncio.create_task(get_llm(AsyncEngineArgs(**engine_args)))
+        return asyncio.create_task(get_llm(AsyncEngineArgs(**engine_args)))  # ty:ignore[invalid-argument-type]
 
 
 # ============================================================================
@@ -528,7 +528,7 @@ def do_sleep(*, level: int) -> None:
                 pin_memory=is_pin_memory_available(),
             )
             cpu_ptr = cpu_backup_tensor.data_ptr()
-            libcudart.cudaMemcpy(
+            libcudart.cudaMemcpy(  # ty:ignore[possibly-missing-attribute]
                 ctypes.c_void_p(cpu_ptr), ctypes.c_void_p(ptr), size_in_bytes
             )
             data.cpu_backup_tensor = cpu_backup_tensor
@@ -564,7 +564,7 @@ def do_wake_up() -> None:
             cpu_backup_tensor = data.cpu_backup_tensor
             size_in_bytes = cpu_backup_tensor.numel() * cpu_backup_tensor.element_size()
             cpu_ptr = cpu_backup_tensor.data_ptr()
-            libcudart.cudaMemcpy(
+            libcudart.cudaMemcpy(  # ty:ignore[possibly-missing-attribute]
                 ctypes.c_void_p(ptr),
                 ctypes.c_void_p(cpu_ptr),
                 size_in_bytes,

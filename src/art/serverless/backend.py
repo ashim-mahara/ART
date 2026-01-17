@@ -25,7 +25,7 @@ class ServerlessBackend(Backend):
         self._client = client
 
     async def close(self) -> None:
-        await self._client.close()
+        await self._client.close()  # ty:ignore[possibly-missing-attribute]
 
     async def register(
         self,
@@ -44,7 +44,7 @@ class ServerlessBackend(Backend):
                 "Registering a non-trainable model with the Serverless backend is not supported."
             )
             return
-        client_model = await self._client.models.create(
+        client_model = await self._client.models.create(  # ty:ignore[possibly-missing-attribute]
             entity=model.entity,
             project=model.project,
             name=model.name,
@@ -72,7 +72,7 @@ class ServerlessBackend(Backend):
             )
             return
         assert model.id is not None, "Model ID is required"
-        await self._client.models.delete(model_id=model.id)
+        await self._client.models.delete(model_id=model.id)  # ty:ignore[possibly-missing-attribute]
 
     def _model_inference_name(self, model: "TrainableModel") -> str:
         assert model.entity is not None, "Model entity is required"
@@ -81,7 +81,7 @@ class ServerlessBackend(Backend):
     async def _get_step(self, model: "Model") -> int:
         if model.trainable:
             assert model.id is not None, "Model ID is required"
-            async for checkpoint in self._client.models.checkpoints.list(
+            async for checkpoint in self._client.models.checkpoints.list(  # ty:ignore[possibly-missing-attribute]
                 limit=1, order="desc", model_id=model.id
             ):
                 return checkpoint.step
@@ -97,7 +97,7 @@ class ServerlessBackend(Backend):
         # TODO: potentially implement benchmark smoothing
         assert model.id is not None, "Model ID is required"
         benchmark_values: dict[int, float] = {}
-        async for checkpoint in self._client.models.checkpoints.list(model_id=model.id):
+        async for checkpoint in self._client.models.checkpoints.list(model_id=model.id):  # ty:ignore[possibly-missing-attribute]
             benchmark_values[checkpoint.step] = checkpoint.metrics.get(
                 benchmark, -float("inf")
             )
@@ -108,7 +108,7 @@ class ServerlessBackend(Backend):
             for step, benchmark_value in benchmark_values.items()
             if step != max_step and benchmark_value != max_benchmark_value
         ]:
-            await self._client.models.checkpoints.delete(
+            await self._client.models.checkpoints.delete(  # ty:ignore[possibly-missing-attribute]
                 model_id=model.id,
                 steps=steps_to_delete,
             )
@@ -118,7 +118,7 @@ class ServerlessBackend(Backend):
         model: "TrainableModel",
         config: dev.OpenAIServerConfig | None,
     ) -> tuple[str, str]:
-        return str(self._base_url), self._client.api_key
+        return str(self._base_url), self._client.api_key  # ty:ignore[possibly-missing-attribute]
 
     async def _log(
         self,
@@ -131,7 +131,7 @@ class ServerlessBackend(Backend):
             print(f"Model {model.name} is not trainable; skipping logging.")
             return
         assert model.id is not None, "Model ID is required"
-        await self._client.models.log(
+        await self._client.models.log(  # ty:ignore[possibly-missing-attribute]
             model_id=model.id, trajectory_groups=trajectory_groups, split=split
         )
 
@@ -144,7 +144,7 @@ class ServerlessBackend(Backend):
         verbose: bool = False,
     ) -> AsyncIterator[dict[str, float]]:
         assert model.id is not None, "Model ID is required"
-        training_job = await self._client.training_jobs.create(
+        training_job = await self._client.training_jobs.create(  # ty:ignore[possibly-missing-attribute]
             model_id=model.id,
             trajectory_groups=trajectory_groups,
             experimental_config=ExperimentalTrainingConfig(
@@ -168,7 +168,7 @@ class ServerlessBackend(Backend):
         pbar: tqdm.tqdm | None = None
         while True:
             await asyncio.sleep(1)
-            async for event in self._client.training_jobs.events.list(
+            async for event in self._client.training_jobs.events.list(  # ty:ignore[possibly-missing-attribute]
                 training_job_id=training_job.id, after=after or NOT_GIVEN
             ):
                 if event.type == "gradient_step":
@@ -224,7 +224,7 @@ class ServerlessBackend(Backend):
         assert model.id is not None, "Model ID is required"
 
         # If entity is not set, use the user's default entity from W&B
-        api = wandb.Api(api_key=self._client.api_key)
+        api = wandb.Api(api_key=self._client.api_key)  # ty:ignore[possibly-missing-attribute]
         if model.entity is None:
             model.entity = api.default_entity
             if verbose:
@@ -234,7 +234,7 @@ class ServerlessBackend(Backend):
         resolved_step: int
         if step is None or step == "latest":
             # Get latest checkpoint from API
-            async for checkpoint in self._client.models.checkpoints.list(
+            async for checkpoint in self._client.models.checkpoints.list(  # ty:ignore[possibly-missing-attribute]
                 limit=1, order="desc", model_id=model.id
             ):
                 resolved_step = checkpoint.step

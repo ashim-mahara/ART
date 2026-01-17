@@ -146,7 +146,7 @@ def tokenize_trajectory(
         ):
             last_assistant_index = i
         elif not isinstance(message, dict) and (
-            message.logprobs or allow_training_without_logprobs
+            message.logprobs or allow_training_without_logprobs  # ty:ignore[possibly-missing-attribute]
         ):
             last_assistant_index = i
     # If there are no trainable assistant messages, return None
@@ -225,12 +225,12 @@ def tokenize_trajectory(
             assistant_mask[start:end] = [1] * len(content_token_ids)
         else:
             choice = message
-            assert choice.logprobs or allow_training_without_logprobs, (
+            assert choice.logprobs or allow_training_without_logprobs, (  # ty:ignore[possibly-missing-attribute]
                 "Chat completion choices must have logprobs"
             )
-            if not choice.logprobs:
+            if not choice.logprobs:  # ty:ignore[possibly-missing-attribute]
                 continue
-            token_logprobs = choice.logprobs.content or choice.logprobs.refusal or []
+            token_logprobs = choice.logprobs.content or choice.logprobs.refusal or []  # ty:ignore[possibly-missing-attribute]
             if (
                 bytes(token_logprobs[0].bytes or []).decode("utf-8")
                 == "<think>"

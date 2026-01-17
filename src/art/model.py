@@ -151,7 +151,7 @@ class Model(
     async def register(self, backend: "Backend") -> None:
         if self.config is not None:
             try:
-                self.config.model_dump_json()
+                self.config.model_dump_json()  # ty:ignore[invalid-argument-type, possibly-missing-attribute]
             except Exception as e:
                 raise ValueError(
                     "The model config cannot be serialized to JSON. Please ensure that all fields are JSON serializable and try again."
@@ -383,6 +383,6 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
                 not yet part of the public API. Use at your own risk.
         """
         async for _ in self.backend()._train_model(
-            self, list(trajectory_groups), config, _config or {}, verbose
+            self, list(trajectory_groups), config, _config or {}, verbose  # ty:ignore[invalid-argument-type]
         ):
             pass

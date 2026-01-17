@@ -46,7 +46,7 @@ def _patched_parse_tool_call(
     return _parse_tool_call(self, tool_call_str.replace('"arguments": ', '"args": '))
 
 
-renderers.Qwen3InstructRenderer._parse_tool_call = _patched_parse_tool_call
+renderers.Qwen3InstructRenderer._parse_tool_call = _patched_parse_tool_call  # ty:ignore[invalid-assignment]
 
 
 @contextmanager
@@ -279,7 +279,7 @@ class TinkerService:
     async def _run_openai_server(
         self, config: dev.OpenAIServerConfig | None, state: "TinkerState"
     ) -> None:
-        config = config or {}
+        config = config or {}  # ty:ignore[invalid-assignment]
         app = FastAPI()
 
         @app.get("/metrics")
@@ -301,7 +301,7 @@ class TinkerService:
                     list(body["messages"]),  # type: ignore
                     tools=body.get("tools"),  # type: ignore
                     add_generation_prompt=True,
-                )
+                )  # ty:ignore[invalid-argument-type]
             )
             sample_response = await state.sampler_client.sample_async(
                 prompt=prompt,
@@ -374,8 +374,8 @@ class TinkerService:
 
         server_config = uvicorn.Config(
             app,
-            host=config.get("host", "0.0.0.0"),
-            port=config.get("port", get_free_port()),
+            host=config.get("host", "0.0.0.0"),  # ty:ignore[possibly-missing-attribute]
+            port=config.get("port", get_free_port()),  # ty:ignore[possibly-missing-attribute]
             log_level="error",
         )
         server = uvicorn.Server(server_config)

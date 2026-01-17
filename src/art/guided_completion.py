@@ -19,11 +19,11 @@ def freeze_tool_schema(tool: dict, fixed_args: dict) -> ChatCompletionToolParam:
     Each field is cast to typing.Literal[value] so Pydantic emits an
     enum-of-one in the JSON schema, which vLLM's `guided_json` accepts.
     """
-    fields = {k: (Literal[v], ...) for k, v in fixed_args.items()}
+    fields = {k: (Literal[v], ...) for k, v in fixed_args.items()}  # ty:ignore[invalid-type-form]
     FrozenModel = create_model(
         f"{tool['function']['name'].title()}FrozenArgs",
         **fields,  # type: ignore
-    )
+    )  # ty:ignore[no-matching-overload]
 
     locked = deepcopy(tool)
     locked["function"]["parameters"] = FrozenModel.model_json_schema()

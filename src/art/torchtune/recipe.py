@@ -163,7 +163,7 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
             )
         if self.tp_degree > 1:
             # DTensor does not support grouped_mm yet
-            moe_utils.use_grouped_mm = False
+            moe_utils.use_grouped_mm = False  # ty:ignore[invalid-assignment]
         self.cp_degree = cfg.context_parallel_dim
         data_shard = cfg.data_parallel_shard_dim  # -1 means to infer
         data_replicate = cfg.data_parallel_replicate_dim
@@ -320,7 +320,7 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                 "Are you sure you passed in the right recipe checkpoint?"
             ) from e
 
-    def setup(self, *, cfg: RecipeConfig, **kwargs: Any) -> None:
+    def setup(self, *, cfg: RecipeConfig, **kwargs: Any) -> None:  # ty:ignore[invalid-method-override]
         """
         Setup the recipe. This includes training state (if resume_from_checkpoint is True),
         model, optimizer, and metric logger.
@@ -394,7 +394,7 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                     "optimizer_in_bwd not supported with compiling the optimizer step"
                 )
             assert self._optimizer is not None
-            self._optimizer.step = torch.compile(
+            self._optimizer.step = torch.compile(  # ty:ignore[invalid-assignment]
                 self._optimizer.step,
                 backend=self._compile_backend,
             )
@@ -626,7 +626,7 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
 
         if self.is_distributed:
             # synchronize before training begins
-            torch.distributed.barrier(device_ids=[self._device.index])
+            torch.distributed.barrier(device_ids=[self._device.index])  # ty:ignore[possibly-missing-attribute]
 
         return model
 
@@ -934,8 +934,8 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                     # For optimizer in backward, we need to normalize before calling backward
                     # This case and gradient accumulation are mutually exclusive
                     if self._optimizer_in_bwd and self.is_distributed:
-                        torch.distributed.all_reduce(num_tokens)
-                        torch.distributed.all_reduce(running_loss)
+                        torch.distributed.all_reduce(num_tokens)  # ty:ignore[possibly-missing-attribute]
+                        torch.distributed.all_reduce(running_loss)  # ty:ignore[possibly-missing-attribute]
                         current_loss = current_loss * (self.dp_degree / num_tokens)
                     current_loss.backward()
 
@@ -945,9 +945,9 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                     if not self._optimizer_in_bwd:
                         if self.is_distributed:
                             # Get total number of tokens across all ranks to normalize gradients
-                            torch.distributed.all_reduce(num_tokens)
+                            torch.distributed.all_reduce(num_tokens)  # ty:ignore[possibly-missing-attribute]
                             # Ensure consistency across all ranks for logging
-                            torch.distributed.all_reduce(running_loss)
+                            torch.distributed.all_reduce(running_loss)  # ty:ignore[possibly-missing-attribute]
 
                         # Manually scale the gradients by total # of tokens
                         self._grad_scaler(
@@ -1097,7 +1097,7 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                                 training.gather_cpu_state_dict = gather_cpu_state_dict
                                 return state_dict
 
-                            training.gather_cpu_state_dict = _gather_cpu_state_dict
+                            training.gather_cpu_state_dict = _gather_cpu_state_dict  # ty:ignore[invalid-assignment]
                         checkpointer: FullModelHFCheckpointer = (
                             self._checkpoint_client._get_checkpointer()
                         )

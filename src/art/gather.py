@@ -229,7 +229,7 @@ class GatherContext:
         if (
             0 < self.max_exceptions < 1
             and self.pbar is not None
-            and self.metric_sums["exceptions"] / self.pbar.total <= self.max_exceptions
+            and self.metric_sums["exceptions"] / self.pbar.total <= self.max_exceptions  # ty:ignore[unsupported-operator]
         ) or self.metric_sums["exceptions"] <= self.max_exceptions:
             return False
         return True
