@@ -262,6 +262,7 @@ class UnslothService:
     output_dir: str
     _is_sleeping: bool = False
     _sft_optimizer: torch.optim.AdamW | None = None
+    _sft_optimizer: torch.optim.AdamW | None = None
 
     async def start_openai_server(self, config: dev.OpenAIServerConfig | None) -> None:
         lora_path = get_last_checkpoint_dir(self.output_dir)
