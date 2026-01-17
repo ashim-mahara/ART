@@ -28,11 +28,3 @@ class ModelService(Protocol):
         _config: dev.TrainConfig,
         verbose: bool = False,
     ) -> AsyncIterator[dict[str, float]]: ...
-
-    async def register_lora_for_step(self, step: int, checkpoint_dir: str) -> None:
-        """Register a LoRA adapter for a specific checkpoint step.
-
-        This is called when training is skipped (e.g., all rewards are the same)
-        but the checkpoint directory is renamed to advance the step.
-        """
-        ...

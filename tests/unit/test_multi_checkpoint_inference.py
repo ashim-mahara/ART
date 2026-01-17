@@ -20,7 +20,6 @@ import pytest
 import art
 from art.model import Model, TrainableModel
 
-
 # =============================================================================
 # Model.get_inference_name() Tests
 # =============================================================================
@@ -140,6 +139,7 @@ class TestTinkerStateGetSamplerClient:
         """Import TinkerState, skipping if dependencies unavailable."""
         try:
             from art.tinker.service import TinkerState
+
             return TinkerState
         except ImportError as e:
             pytest.skip(f"Tinker dependencies not available: {e}")
@@ -164,7 +164,9 @@ class TestTinkerStateGetSamplerClient:
         assert state.get_sampler_client() is mock_client_5
         assert state.get_sampler_client(step=None) is mock_client_5
 
-    def test_get_sampler_client_with_step_returns_specific_client(self, tinker_state_class):
+    def test_get_sampler_client_with_step_returns_specific_client(
+        self, tinker_state_class
+    ):
         """With step, should return client for that specific step."""
         TinkerState = tinker_state_class
 
@@ -265,7 +267,9 @@ class TestServerlessBackendModelInferenceName:
         )
         model.entity = "test-entity"
 
-        assert backend._model_inference_name(model, step=None) == backend._model_inference_name(model)
+        assert backend._model_inference_name(
+            model, step=None
+        ) == backend._model_inference_name(model)
 
 
 # =============================================================================
@@ -287,7 +291,7 @@ class TestOpenAIServerConfigLoraName:
             lora_path="/path/to/checkpoints/0005",
         )
 
-        lora_modules = config.get("server_args", {}).get("lora_modules", [])
+        lora_modules = config.get("server_args", {}).get("lora_modules") or []
         assert len(lora_modules) == 1
         assert "my-model@5" in lora_modules[0]
         assert "/path/to/checkpoints/0005" in lora_modules[0]
@@ -303,7 +307,7 @@ class TestOpenAIServerConfigLoraName:
             lora_path="/path/to/checkpoints/0000",
         )
 
-        lora_modules = config.get("server_args", {}).get("lora_modules", [])
+        lora_modules = config.get("server_args", {}).get("lora_modules") or []
         assert len(lora_modules) == 1
         assert "my-model@0" in lora_modules[0]
 
@@ -337,7 +341,9 @@ class TestStepParsing:
                 except ValueError:
                     pass
 
-            assert step == expected_step, f"Failed for {model_name}: got {step}, expected {expected_step}"
+            assert step == expected_step, (
+                f"Failed for {model_name}: got {step}, expected {expected_step}"
+            )
 
 
 # =============================================================================
@@ -353,6 +359,7 @@ class TestUnslothServiceMaxLoras:
         """Import UnslothService, skipping if dependencies unavailable."""
         try:
             from art.unsloth.service import UnslothService
+
             return UnslothService
         except ImportError as e:
             pytest.skip(f"Unsloth dependencies not available: {e}")

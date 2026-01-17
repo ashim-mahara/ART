@@ -28,9 +28,7 @@ def get_openai_server_config(
     server_args = ServerArgs(
         api_key="default",
         lora_modules=(
-            [f'{{"name": "{lora_name}", "path": "{lora_path}"}}']
-            if lora_path
-            else None
+            [f'{{"name": "{lora_name}", "path": "{lora_path}"}}'] if lora_path else None
         ),
         return_tokens_as_token_ids=True,
         enable_auto_tool_choice=True,

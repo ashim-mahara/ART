@@ -23,7 +23,6 @@ import pytest
 import art
 from art.local import LocalBackend
 
-
 # Use a small model for fast testing
 DEFAULT_BASE_MODEL = "Qwen/Qwen3-0.6B"
 

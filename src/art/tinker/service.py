@@ -195,7 +195,9 @@ class TinkerService:
         # Delete checkpoints from disk and Tinker
         await asyncio.gather(
             *[
-                delete_checkpoint(self._checkpoints_path / f"{step:04d}", state.rest_client)
+                delete_checkpoint(
+                    self._checkpoints_path / f"{step:04d}", state.rest_client
+                )
                 for step in steps_to_delete
             ]
         )
