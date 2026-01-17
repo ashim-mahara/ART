@@ -383,6 +383,10 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
                 not yet part of the public API. Use at your own risk.
         """
         async for _ in self.backend()._train_model(
-            self, list(trajectory_groups), config, _config or {}, verbose  # ty:ignore[invalid-argument-type]
+            self,
+            list(trajectory_groups),
+            config,
+            _config or {},  # ty:ignore[invalid-argument-type]
+            verbose,
         ):
             pass
