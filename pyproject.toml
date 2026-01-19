@@ -121,4 +121,3 @@ dev = [
 
 [tool.uv.sources]
 panza = { git = "https://github.com/corbt/panza.git" }
-sweagent = { git = "https://github.com/bradhilton/SWE-agent" }
