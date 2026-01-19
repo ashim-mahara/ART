@@ -3,7 +3,6 @@ from enum import Enum
 from typing_extensions import Required, TypedDict
 
 from .engine import EngineArgs
-from .torchtune import TorchtuneArgs
 
 
 # Vendored from transformers.training_args.OptimizerNames
@@ -116,7 +115,6 @@ class InternalModelConfig(TypedDict, total=False):
         peft: Arguments for creating an Unsloth PEFT model wrapper.
         tinker: Arguments for the Tinker training client.
         trainer: Arguments for the GRPO trainer.
-        torchtune: Arguments for TorchTune.
     """
 
     init_args: "InitArgs"
@@ -124,7 +122,6 @@ class InternalModelConfig(TypedDict, total=False):
     peft_args: "PeftArgs"
     tinker_args: "TinkerArgs | None"
     trainer_args: "TrainerArgs"
-    torchtune_args: TorchtuneArgs | None
 
 
 class TinkerArgs(TypedDict, total=False):

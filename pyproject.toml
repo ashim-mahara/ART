@@ -26,7 +26,6 @@ backend = [
     "unsloth==2025.12.9",
     "unsloth-zoo==2025.12.7",
     "vllm==0.13.0",
-    "torchtune",
     "torch>=2.8.0",
     "torchao==0.14.1",
     "accelerate==1.7.0",
@@ -123,4 +122,3 @@ dev = [
 [tool.uv.sources]
 panza = { git = "https://github.com/corbt/panza.git" }
 sweagent = { git = "https://github.com/bradhilton/SWE-agent" }
-torchtune = { git = "https://github.com/pytorch/torchtune.git", rev = "2344509cf83bd886538fe3e8263e5145d1afb5c2" }
