@@ -27,7 +27,7 @@ async def train(
     _compute_loss = trainer.compute_loss
     _log = trainer.log
     trainer.compute_loss = get_compute_loss_fn(trainer)
-    trainer.log = get_log_fn(trainer, results_queue)
+    trainer.log = get_log_fn(trainer, results_queue)  # ty:ignore[invalid-assignment]
     # Ensure we have a metrics container in the expected format
     try:
         is_dict = isinstance(getattr(trainer, "_metrics", None), dict)
@@ -40,7 +40,7 @@ async def train(
         trainer.train()
     finally:
         trainer.compute_loss = _compute_loss
-        trainer.log = _log
+        trainer.log = _log  # ty:ignore[invalid-assignment]
 
 
 def get_compute_loss_fn(trainer: "GRPOTrainer") -> Callable[..., torch.Tensor]:
@@ -82,7 +82,7 @@ def get_compute_loss_fn(trainer: "GRPOTrainer") -> Callable[..., torch.Tensor]:
         inputs = {
             key: tensor.to(trainer.accelerator.device)  # type: ignore
             for key, tensor in inputs.items()
-        }
+        }  # ty:ignore[invalid-assignment]
 
         accelerate_mixed_precision = os.environ.get("ACCELERATE_MIXED_PRECISION")
         force_float32 = os.environ.get("UNSLOTH_FORCE_FLOAT32")

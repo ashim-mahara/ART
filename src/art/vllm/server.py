@@ -67,7 +67,7 @@ async def openai_server_task(
             )
         return await add_lora(lora_request)
 
-    engine.add_lora = _add_lora
+    engine.add_lora = _add_lora  # ty:ignore[invalid-assignment]
 
     @asynccontextmanager
     async def build_async_engine_client(
