@@ -13,11 +13,6 @@ from PIL import Image
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
-# Import Unsloth Zoo utility for training on responses only
-# Source: https://github.com/unslothai/unsloth-zoo/blob/main/unsloth_zoo/dataset_utils.py
-# This function handles edge cases with tokenization (newlines, spaces, etc.)
-from unsloth_zoo.dataset_utils import train_on_responses_only
-
 from ..trajectories import History, Trajectory, TrajectoryGroup, get_messages
 
 
@@ -364,6 +359,11 @@ def tokenize_sft_batches(
             - num_trajectories: Number of trajectories in this batch
             - num_trainable_tokens: Total number of trainable tokens
     """
+    # Import Unsloth Zoo utility for training on responses only
+    # Source: https://github.com/unslothai/unsloth-zoo/blob/main/unsloth_zoo/dataset_utils.py
+    # This function handles edge cases with tokenization (newlines, spaces, etc.)
+    from unsloth_zoo.dataset_utils import train_on_responses_only
+
     # Validate inputs
     num_trajectories = len(trajectories)
     num_learning_rates = len(learning_rates)
@@ -381,8 +381,6 @@ def tokenize_sft_batches(
     if pad_token_id is None:
         pad_token_id = tokenizer.eos_token_id
 
-    # Get the _train_on_responses_only function from unsloth_zoo
-    # This handles edge cases with tokenization (newlines, spaces, etc.)
     _train_on_responses_only = train_on_responses_only(
         trainer=None,
         instruction_part=instruction_part,
