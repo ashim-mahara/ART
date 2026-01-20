@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING, Any, AsyncIterator, Iterable, Literal
+from typing import TYPE_CHECKING, Any, AsyncIterator, Iterable, Literal, TypeAlias
 import warnings
 
 import httpx
@@ -20,6 +20,10 @@ from .types import TrainConfig, TrainResult
 if TYPE_CHECKING:
     from .model import Model, TrainableModel
 
+# Type aliases for models with any config/state type (for backend method signatures)
+AnyModel: TypeAlias = "Model[Any, Any]"
+AnyTrainableModel: TypeAlias = "TrainableModel[Any, Any]"
+
 
 class Backend:
     def __init__(
@@ -39,7 +43,7 @@ class Backend:
 
     async def register(
         self,
-        model: "Model",
+        model: AnyModel,
     ) -> None:
         """
         Registers a model with the Backend for logging and/or training.
@@ -50,14 +54,14 @@ class Backend:
         response = await self._client.post("/register", json=model.safe_model_dump())
         response.raise_for_status()
 
-    async def _get_step(self, model: "TrainableModel") -> int:
+    async def _get_step(self, model: AnyTrainableModel) -> int:
         response = await self._client.post("/_get_step", json=model.safe_model_dump())
         response.raise_for_status()
         return response.json()
 
     async def _delete_checkpoint_files(
         self,
-        model: "TrainableModel",
+        model: AnyTrainableModel,
         steps_to_keep: list[int],
     ) -> None:
         response = await self._client.post(
@@ -68,7 +72,7 @@ class Backend:
 
     async def _prepare_backend_for_training(
         self,
-        model: "TrainableModel",
+        model: AnyTrainableModel,
         config: dev.OpenAIServerConfig | None,
     ) -> tuple[str, str]:
         response = await self._client.post(
@@ -80,7 +84,7 @@ class Backend:
         base_url, api_key = tuple(response.json())
         return base_url, api_key
 
-    def _model_inference_name(self, model: "Model", step: int | None = None) -> str:
+    def _model_inference_name(self, model: AnyModel, step: int | None = None) -> str:
         """Return the inference name for a model checkpoint.
 
         Override in subclasses to provide backend-specific naming.
@@ -93,7 +97,7 @@ class Backend:
 
     async def train(
         self,
-        model: "TrainableModel",
+        model: AnyTrainableModel,
         trajectory_groups: Iterable[TrajectoryGroup],
         **kwargs: Any,
     ) -> TrainResult:
@@ -114,7 +118,7 @@ class Backend:
 
     async def _train_model(
         self,
-        model: "TrainableModel",
+        model: AnyTrainableModel,
         trajectory_groups: list[TrajectoryGroup],
         config: TrainConfig,
         dev_config: dev.TrainConfig,
@@ -152,7 +156,7 @@ class Backend:
     @log_http_errors
     async def _experimental_pull_from_s3(
         self,
-        model: "Model",
+        model: AnyModel,
         *,
         s3_bucket: str | None = None,
         prefix: str | None = None,
@@ -191,7 +195,7 @@ class Backend:
     @log_http_errors
     async def _experimental_push_to_s3(
         self,
-        model: "Model",
+        model: AnyModel,
         *,
         s3_bucket: str | None = None,
         prefix: str | None = None,
@@ -215,7 +219,7 @@ class Backend:
     @log_http_errors
     async def _experimental_fork_checkpoint(
         self,
-        model: "Model",
+        model: AnyModel,
         from_model: str,
         from_project: str | None = None,
         from_s3_bucket: str | None = None,

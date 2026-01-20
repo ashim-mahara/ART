@@ -148,12 +148,12 @@ class Model(
         report_metrics: list[str] | None = None,
     ) -> "Model[ModelConfig, dict[str, Any]]": ...
 
-    def __new__(
+    def __new__(  # pyright: ignore[reportInconsistentOverload]
         cls,
         *args,
         **kwargs,
     ) -> "Model[ModelConfig, StateType]":
-        return super().__new__(cls)
+        return super().__new__(cls)  # type: ignore[return-value]
 
     def safe_model_dump(self, *args, **kwargs) -> dict:
         """
@@ -539,7 +539,7 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
         _internal_config: dev.InternalModelConfig | None = None,
     ) -> "TrainableModel[ModelConfig, dict[str, Any]]": ...
 
-    def __new__(
+    def __new__(  # pyright: ignore[reportInconsistentOverload]
         cls,
         *args,
         **kwargs,
