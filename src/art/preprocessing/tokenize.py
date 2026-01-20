@@ -9,13 +9,13 @@ import torch
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
-from ..trajectories import History, TrajectoryGroup, Trajectory, get_messages
-
 # Import Unsloth Zoo utility for training on responses only
 # Source: https://github.com/unslothai/unsloth-zoo/blob/main/unsloth_zoo/dataset_utils.py
 # This function handles edge cases with tokenization (newlines, spaces, etc.)
 import unsloth  # noqa: F401 # Must import first to set UNSLOTH_IS_PRESENT env var
 from unsloth_zoo.dataset_utils import train_on_responses_only
+
+from ..trajectories import History, Trajectory, TrajectoryGroup, get_messages
 
 
 @dataclass
