@@ -1,14 +1,12 @@
 """Unit tests for SFT utilities."""
 
 import json
-import math
 from pathlib import Path
 import tempfile
 
 import pytest
 
 from art.trajectories import Trajectory
-from art.types import SFTConfig
 from art.utils.sft import create_lr_schedule, create_sft_dataset_iterator, iterate_file
 
 
@@ -77,13 +75,16 @@ def test_create_sft_dataset_iterator():
     assert len(chunks[5].trajectories) == 4  # Epoch 3, chunk 2 (partial)
 
     # Verify chunk metadata
+    # Chunk 0: starts at batch 0 (16 trajectories = 2 batches)
     assert chunks[0].step == 0
     assert chunks[0].epoch == 0
     assert chunks[0].epoch_step == 0
 
-    assert chunks[1].step == 1
+    # Chunk 1: starts at batch 2 (after 2 batches from chunk 0)
+    # chunk_start=16, global_batch_step = ceil(16/8) = 2
+    assert chunks[1].step == 2
     assert chunks[1].epoch == 0
-    assert chunks[1].epoch_step == 1
+    assert chunks[1].epoch_step == 2
 
 
 def test_iterate_file():
@@ -133,32 +134,140 @@ def test_iterate_file_with_shuffle():
         jsonl_file.unlink()
 
 
-# def test_total_steps_calculation():
-#     """Test that total steps calculation matches actual batches."""
-#     num_trajectories = 105
-#     epochs = 3
-#     batch_size = 8
+def test_chunk_size_validation():
+    """Test that chunk_size < 1 raises an error."""
+    trajectories = [create_dummy_trajectory(i) for i in range(10)]
 
-#     # This is how train_sft_from_file calculates total_steps
-#     expected_total_steps = math.ceil((num_trajectories * epochs) / batch_size)
+    with pytest.raises(ValueError, match="chunk_size must be >= 1"):
+        list(create_sft_dataset_iterator(trajectories, chunk_size=0, use_tqdm=False))
 
-#     # Create file and count actual batches
-#     jsonl_file = create_temp_jsonl(num_trajectories)
+    with pytest.raises(ValueError, match="chunk_size must be >= 1"):
+        list(create_sft_dataset_iterator(trajectories, chunk_size=-1, use_tqdm=False))
 
-#     try:
-#         batches = list(iterate_file(
-#             str(jsonl_file),
-#             epochs=epochs,
-#             batch_size=batch_size,
-#             shuffle=False,
-#         ))
 
-#         actual_batches = len(batches)
+def test_lr_schedule_warmup_not_zero():
+    """Test that warmup doesn't start at lr=0."""
+    lrs = create_lr_schedule(
+        total_steps=10,
+        peak_lr=1e-4,
+        method="constant",
+        warmup_steps=5,
+        min_lr=0.0,
+    )
 
-#         # Should match
-#         assert actual_batches == expected_total_steps
-#     finally:
-#         jsonl_file.unlink()
+    # First step should NOT be 0
+    assert lrs[0] > 0
+    # Should reach peak_lr by end of warmup
+    assert lrs[4] == pytest.approx(1e-4)
+    # After warmup, should stay at peak_lr (constant schedule)
+    assert lrs[5] == pytest.approx(1e-4)
+
+
+def test_lr_schedule_edge_cases():
+    """Test LR schedule edge cases."""
+    # Empty schedule
+    lrs = create_lr_schedule(total_steps=0, peak_lr=1e-4)
+    assert lrs == []
+
+    # Single step
+    lrs = create_lr_schedule(total_steps=1, peak_lr=1e-4)
+    assert len(lrs) == 1
+    assert lrs[0] == pytest.approx(1e-4)
+
+    # Warmup steps >= total_steps (edge case)
+    lrs = create_lr_schedule(total_steps=5, peak_lr=1e-4, warmup_steps=10)
+    assert len(lrs) == 5
+    # Should not crash and should produce valid learning rates
+    assert all(lr > 0 for lr in lrs)
+
+
+def test_lr_schedule_decay_methods():
+    """Test that cosine and linear decay work correctly."""
+    peak_lr = 1e-4
+    min_lr = 1e-5
+
+    # Linear decay: should go from peak_lr to min_lr
+    lrs = create_lr_schedule(
+        total_steps=5, peak_lr=peak_lr, method="linear", min_lr=min_lr
+    )
+    assert lrs[0] == pytest.approx(peak_lr)  # Start at peak
+    assert lrs[-1] == pytest.approx(min_lr)  # End at min
+    # Should be monotonically decreasing
+    for i in range(len(lrs) - 1):
+        assert lrs[i] >= lrs[i + 1]
+
+    # Cosine decay: should go from peak_lr to min_lr
+    lrs = create_lr_schedule(
+        total_steps=5, peak_lr=peak_lr, method="cosine", min_lr=min_lr
+    )
+    assert lrs[0] == pytest.approx(peak_lr)  # Start at peak
+    assert lrs[-1] == pytest.approx(min_lr)  # End at min
+
+
+def test_lr_schedule_no_warmup():
+    """Test schedule with warmup_steps=0."""
+    lrs = create_lr_schedule(
+        total_steps=5, peak_lr=1e-4, method="linear", warmup_steps=0, min_lr=0
+    )
+    assert len(lrs) == 5
+    assert lrs[0] == pytest.approx(1e-4)  # Start at peak (no warmup)
+    assert lrs[-1] == pytest.approx(0)  # End at min_lr
+
+
+def test_create_sft_dataset_iterator_with_initial_step():
+    """Test resuming from initial_step skips correct number of batches."""
+    trajectories = [create_dummy_trajectory(i) for i in range(20)]
+
+    # Without initial_step: should get all chunks
+    all_chunks = list(
+        create_sft_dataset_iterator(
+            trajectories, epochs=1, batch_size=4, chunk_size=2, use_tqdm=False
+        )
+    )
+
+    # With initial_step=2: should skip first 2 batches (first chunk)
+    resumed_chunks = list(
+        create_sft_dataset_iterator(
+            trajectories,
+            epochs=1,
+            batch_size=4,
+            chunk_size=2,
+            initial_step=2,
+            use_tqdm=False,
+        )
+    )
+
+    # Should have fewer chunks when resuming
+    assert len(resumed_chunks) < len(all_chunks)
+    # First resumed chunk should start at step 2 or later
+    assert resumed_chunks[0].step >= 2
+
+
+def test_create_sft_dataset_iterator_epoch_shuffling():
+    """Test that different epochs have different trajectory orderings."""
+    trajectories = [create_dummy_trajectory(i) for i in range(10)]
+
+    chunks = list(
+        create_sft_dataset_iterator(
+            trajectories,
+            epochs=2,
+            batch_size=10,  # One batch per epoch
+            chunk_size=1,
+            use_tqdm=False,
+        )
+    )
+
+    # Should have 2 chunks (one per epoch)
+    assert len(chunks) == 2
+
+    # Different epochs should have different orderings (due to shuffle)
+    epoch0_contents = [
+        t.messages_and_choices[0]["content"] for t in chunks[0].trajectories
+    ]
+    epoch1_contents = [
+        t.messages_and_choices[0]["content"] for t in chunks[1].trajectories
+    ]
+    assert epoch0_contents != epoch1_contents
 
 
 if __name__ == "__main__":

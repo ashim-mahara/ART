@@ -103,28 +103,25 @@ def create_lr_schedule(
         for step, chunk in enumerate(chunk_trajectories(...)):
             train_sft(chunk, learning_rate=lrs[step])
     """
+    if total_steps <= 0:
+        return []
+
     learning_rates = []
+    decay_steps = total_steps - warmup_steps
 
     for step in range(total_steps):
-        # Warmup phase: linear warmup from 0 to peak_lr
         if step < warmup_steps:
-            lr = peak_lr * (step / warmup_steps)
+            # Warmup: linear ramp from min_lr to peak_lr
+            # Use (step + 1) so first step has lr > 0
+            lr = min_lr + (peak_lr - min_lr) * ((step + 1) / warmup_steps)
         else:
-            # Main schedule phase
-            # Adjust step to be relative to post-warmup period
-            adjusted_step = step - warmup_steps
-            adjusted_total = total_steps - warmup_steps
-
+            # Decay phase: progress goes from 0 to 1
+            progress = (step - warmup_steps) / (decay_steps - 1) if decay_steps > 1 else 0
             if method == "cosine":
-                # Cosine annealing: lr = min_lr + (peak_lr - min_lr) * 0.5 * (1 + cos(pi * t))
-                lr = min_lr + (peak_lr - min_lr) * 0.5 * (
-                    1 + math.cos(math.pi * adjusted_step / adjusted_total)
-                )
+                lr = min_lr + (peak_lr - min_lr) * 0.5 * (1 + math.cos(math.pi * progress))
             elif method == "linear":
-                # Linear decay: lr = peak_lr - (peak_lr - min_lr) * (t / total)
-                lr = peak_lr - (peak_lr - min_lr) * (adjusted_step / adjusted_total)
+                lr = peak_lr - (peak_lr - min_lr) * progress
             elif method == "constant":
-                # Constant learning rate
                 lr = peak_lr
             else:
                 raise ValueError(
@@ -205,6 +202,9 @@ def create_sft_dataset_iterator(
             pass
     """
     from art.types import SFTConfig
+
+    if chunk_size < 1:
+        raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
 
     dataset_size = len(trajectories)
     if dataset_size == 0:
