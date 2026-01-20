@@ -3,8 +3,6 @@
 from dataclasses import dataclass
 import math
 from typing import Any, Generator, cast
-import math
-from typing import Any, Generator, cast
 
 import torch
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -17,13 +15,10 @@ from unsloth_zoo.dataset_utils import _find_common_token_ids
 
 from ..trajectories import Trajectory
 
-from ..trajectories import Trajectory
-
 
 @dataclass
 class SFTBatch:
     """A batch of tokenized trajectories for supervised fine-tuning.
-
 
     Attributes:
         trajectory_tensors: List of tensor dictionaries, one per trajectory.
@@ -32,7 +27,6 @@ class SFTBatch:
         num_trajectories: Number of trajectories in this batch.
         num_trainable_tokens: Total number of tokens being trained on (labels != -100).
     """
-
 
     trajectory_tensors: list[dict[str, torch.Tensor]]
     learning_rate: float
@@ -91,19 +85,11 @@ def tokenize_sft_batches(
         response_part, tokenizer, force_match=False
     )
 
-    Q_must, Q_left, Q_right = _find_common_token_ids(
-        instruction_part, tokenizer, force_match=False
-    )
-    A_must, A_left, A_right = _find_common_token_ids(
-        response_part, tokenizer, force_match=False
-    )
-
     # Store temporary stuff
     A_first = A_must[0]
     len_A_must = len(A_must)
     A_left_reversed = A_left[::-1]
     A_right_forward = A_right
-
 
     Q_first = Q_must[0]
     len_Q_must = len(Q_must)
@@ -117,24 +103,13 @@ def tokenize_sft_batches(
         n_minus_1 = n - 1
         j = 0
 
-
         while j < n:
             # Find <assistant>
             if (input_ids[j] == A_first) and (
                 input_ids[j : (k := j + len_A_must)] == A_must
             ):
-            if (input_ids[j] == A_first) and (
-                input_ids[j : (k := j + len_A_must)] == A_must
-            ):
                 # Now backtrack to get previous optional tokens
                 for optional_left in A_left_reversed:
-                    if j < 1:
-                        break
-                    if optional_left == input_ids[j - 1]:
-                        j -= 1
-                    else:
-                        break
-
                     if j < 1:
                         break
                     if optional_left == input_ids[j - 1]:
@@ -151,16 +126,8 @@ def tokenize_sft_batches(
                     else:
                         break
 
-                    if k >= n_minus_1:
-                        break
-                    if optional_right == input_ids[k + 1]:
-                        k += 1
-                    else:
-                        break
-
                 assistant_k = k
                 j = assistant_k
-
 
                 # Given <assistant>, now find next user
                 while j < n:
@@ -170,19 +137,8 @@ def tokenize_sft_batches(
                         (input_ids[j] == Q_first)
                         and (input_ids[j : (k := j + len_Q_must)] == Q_must)
                     ):
-                    if (j == n_minus_1) or (
-                        (input_ids[j] == Q_first)
-                        and (input_ids[j : (k := j + len_Q_must)] == Q_must)
-                    ):
                         # Now backtrack to get previous optional tokens
                         for optional_left in Q_left_reversed:
-                            if j < 1:
-                                break
-                            if optional_left == input_ids[j - 1]:
-                                j -= 1
-                            else:
-                                break
-
                             if j < 1:
                                 break
                             if optional_left == input_ids[j - 1]:
@@ -199,15 +155,7 @@ def tokenize_sft_batches(
                             else:
                                 break
 
-                            if k >= n_minus_1:
-                                break
-                            if optional_right == input_ids[k + 1]:
-                                k += 1
-                            else:
-                                break
-
                         user_j = j
-
 
                         # Account for last item
                         if user_j != n_minus_1:
@@ -216,18 +164,13 @@ def tokenize_sft_batches(
                             user_j = n
                             k = n
 
-
                         # Now copy input_ids to labels
-                        labels[assistant_k:user_j] = input_ids[assistant_k:user_j]
                         labels[assistant_k:user_j] = input_ids[assistant_k:user_j]
                         break
 
-
                     j += 1
 
-
             j += 1
-
 
         return labels
 
@@ -252,14 +195,6 @@ def tokenize_sft_batches(
                     tokenize=True,
                     add_generation_prompt=False,
                 ),
-            input_ids = cast(
-                list[int],
-                tokenizer.apply_chat_template(
-                    cast(Any, messages),
-                    tools=cast(Any, tools),
-                    tokenize=True,
-                    add_generation_prompt=False,
-                ),
             )
 
             # Create attention mask (all 1s - no padding yet)
@@ -274,16 +209,8 @@ def tokenize_sft_batches(
                     "labels": labels,
                 }
             )
-            tokenized_trajectories.append(
-                {
-                    "input_ids": input_ids,
-                    "attention_mask": attention_mask,
-                    "labels": labels,
-                }
-            )
 
         # Find max length in this batch for padding
-        max_seq_length = max(len(t["input_ids"]) for t in tokenized_trajectories)
         max_seq_length = max(len(t["input_ids"]) for t in tokenized_trajectories)
 
         # Second pass: pad all trajectories to max_seq_length
@@ -292,22 +219,15 @@ def tokenize_sft_batches(
             input_ids = tokenized["input_ids"]
             attention_mask = tokenized["attention_mask"]
             labels = tokenized["labels"]
-            input_ids = tokenized["input_ids"]
-            attention_mask = tokenized["attention_mask"]
-            labels = tokenized["labels"]
 
             # Pad to max_seq_length
             padding_length = max_seq_length - len(input_ids)
             if padding_length > 0:
                 input_ids = input_ids + [pad_token_id] * padding_length
-                input_ids = input_ids + [pad_token_id] * padding_length
                 attention_mask = attention_mask + [0] * padding_length
                 labels = labels + [-100] * padding_length
 
             trajectory_tensor = {
-                "input_ids": torch.tensor([input_ids], dtype=torch.long),
-                "attention_mask": torch.tensor([attention_mask], dtype=torch.long),
-                "labels": torch.tensor([labels], dtype=torch.long),
                 "input_ids": torch.tensor([input_ids], dtype=torch.long),
                 "attention_mask": torch.tensor([attention_mask], dtype=torch.long),
                 "labels": torch.tensor([labels], dtype=torch.long),
@@ -317,7 +237,6 @@ def tokenize_sft_batches(
 
         # Calculate total trainable tokens (labels != -100)
         num_trainable_tokens = sum(
-            (tensor_dict["labels"] != -100).sum().item()
             (tensor_dict["labels"] != -100).sum().item()
             for tensor_dict in trajectory_tensors
         )

@@ -1,7 +1,6 @@
 """Utilities for supervised fine-tuning (SFT)."""
 
 from dataclasses import dataclass
-from dataclasses import dataclass
 import json
 import math
 import random
@@ -26,20 +25,16 @@ class SFTDatasetChunk:
     epoch_step: int
 
 
-
 def _parse_jsonl_line(line: str) -> "Trajectory":
     """Parse a JSONL line into a Trajectory object.
 
-
     Args:
         line: A JSON string containing trajectory data with 'messages' and optional 'tools'.
-
 
     Returns:
         A Trajectory object with the parsed data.
     """
     from art.trajectories import Trajectory
-
 
     data = json.loads(line)
     return Trajectory(

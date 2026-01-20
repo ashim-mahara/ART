@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from functools import cached_property
 import os
-from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol, cast
+from typing import TYPE_CHECKING, Any, AsyncIterator, Literal, Protocol, cast
 
 from datasets import Dataset
 import peft
@@ -261,8 +261,7 @@ class UnslothService:
     config: dev.InternalModelConfig
     output_dir: str
     _is_sleeping: bool = False
-    _sft_optimizer: torch.optim.AdamW | None = None
-    _sft_optimizer: torch.optim.AdamW | None = None
+    _last_training_mode: Literal["sft", "rl"] | None = None
 
     async def start_openai_server(self, config: dev.OpenAIServerConfig | None) -> None:
         lora_path = get_last_checkpoint_dir(self.output_dir)
@@ -288,6 +287,44 @@ class UnslothService:
 
     async def vllm_engine_is_sleeping(self) -> bool:
         return self._is_sleeping
+
+    def _get_optimizer(self) -> torch.optim.AdamW:
+        """Get or create the shared optimizer.
+
+        GRPOTrainer creates its optimizer lazily, so it may be None if we
+        start with SFT before any RL training. This method ensures the
+        optimizer exists and is shared between SFT and RL.
+        """
+        if self._state.trainer.optimizer is None:
+            self._state.trainer.optimizer = torch.optim.AdamW(
+                self._state.peft_model.parameters(),
+                lr=1e-4,
+                betas=(0.9, 0.999),
+                weight_decay=0.0,
+            )
+        return self._state.trainer.optimizer
+
+    def _reset_optimizer_if_mode_changed(
+        self,
+        mode: Literal["sft", "rl"],
+    ) -> None:
+        """Reset optimizer state if training mode changed.
+
+        Uses a single shared optimizer (trainer.optimizer) for both SFT and RL.
+        Resets optimizer state (momentum, variance) only when switching between
+        training modes to avoid stale state from a different loss landscape.
+        """
+        mode_changed = (
+            self._last_training_mode is not None
+            and self._last_training_mode != mode
+        )
+
+        if mode_changed:
+            optimizer = self._get_optimizer()
+            # Clear all optimizer state (exp_avg, exp_avg_sq, step for each param)
+            optimizer.state.clear()
+
+        self._last_training_mode = mode
 
     async def train(
         self,
@@ -319,6 +356,9 @@ class UnslothService:
 
         # Reload training model to GPU (after vLLM is asleep)
         self._state.reload_to_gpu()
+
+        # Reset optimizer state if switching from SFT to RL
+        self._reset_optimizer_if_mode_changed("rl")
 
         # Load packed tensors
         packed_tensors = packed_tensors_from_dir(**disk_packed_tensors)
@@ -427,17 +467,10 @@ class UnslothService:
         # Get model
         peft_model = self._state.peft_model
 
-        # Create dedicated SFT optimizer if it doesn't exist
-        # This is separate from the RL optimizer (trainer.optimizer) to ensure
-        # clean optimizer state for each training type
-        if self._sft_optimizer is None:
-            self._sft_optimizer = torch.optim.AdamW(
-                peft_model.parameters(),
-                lr=1e-4,  # Default LR, will be overridden per batch
-                betas=(0.9, 0.999),
-                weight_decay=0.0,
-            )
-        optimizer = self._sft_optimizer
+        # Reset optimizer state if switching from RL to SFT
+        # Uses shared trainer.optimizer for both SFT and RL
+        self._reset_optimizer_if_mode_changed("sft")
+        optimizer = self._get_optimizer()
 
         # Reset environment variable that may be set by RL training
         os.environ["UNSLOTH_RETURN_HIDDEN_STATES"] = "0"

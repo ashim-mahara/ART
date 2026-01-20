@@ -81,6 +81,7 @@ class LocalBackend(Backend):
         self._image_processors: dict[str, BaseImageProcessor | None] = {}
         self._wandb_runs: dict[str, Run] = {}
         self._weave_clients: dict[str, WeaveClient] = {}
+        self._wandb_steps: dict[str, int] = {}  # Track wandb step per model
 
     def __enter__(self) -> Self:
         return self
@@ -484,16 +485,7 @@ class LocalBackend(Backend):
                     f"Advanced step from {current_step} to {next_step} (no training occurred)"
                 )
 
-            # Log metrics showing no groups were trainable
-            self._log_metrics(
-                model,
-                {
-                    "num_groups_submitted": num_groups_submitted,
-                    "num_groups_trainable": 0,
-                },
-                "train",
-                step=next_step,
-            )
+            # Note: Metrics logging is handled by the frontend (Model.train())
             return
         disk_packed_tensors = packed_tensors_to_dir(
             packed_tensors, f"{get_model_dir(model=model, art_path=self._path)}/tensors"
@@ -539,9 +531,7 @@ class LocalBackend(Backend):
         # Add group counting metrics
         data["num_groups_submitted"] = num_groups_submitted
         data["num_groups_trainable"] = num_groups_trainable
-        # Get the current step after training
-        current_step = self.__get_step(model)
-        self._log_metrics(model, data, "train", step=current_step)
+        # Note: Metrics logging is handled by the frontend (Model.train())
         if verbose:
             print("_train_model complete")
 
@@ -648,22 +638,14 @@ class LocalBackend(Backend):
         num_batches = len(sft_batches)
         pbar = tqdm.tqdm(total=num_batches, desc="Processing chunk", leave=False)
 
-        # Calculate starting step for per-batch logging
-        # global_step is the step at END of chunk, so starting step is global_step - num_batches
-        if config.global_step is not None:
-            start_step = config.global_step - num_batches
-        else:
-            start_step = self.__get_step(model)
-
-        batch_idx = 0
         async for result in service.train_sft(sft_batches, verbose):
             pbar.update(1)
             pbar.set_postfix({"loss": f"{result.get('loss', 0):.4f}"})
 
-            # Log metrics for each individual batch
-            current_step = start_step + batch_idx + 1
+            # Advance wandb step and log metrics
+            # This ensures monotonically increasing steps across SFT and RL
+            current_step = self._advance_wandb_step(model)
             self._log_metrics(model, result, "train", step=current_step)
-            batch_idx += 1
 
             yield result
         pbar.close()
@@ -759,6 +741,32 @@ class LocalBackend(Backend):
 
         return learning_rate_multiplier
 
+    def _get_wandb_step(self, model: Model) -> int:
+        """Get the current wandb step for a model.
+
+        Initializes from checkpoint step if not yet tracked.
+        This ensures monotonically increasing steps across SFT and RL training.
+        """
+        if model.name not in self._wandb_steps:
+            # Initialize from checkpoint step
+            self._wandb_steps[model.name] = self.__get_step(model)
+        return self._wandb_steps[model.name]
+
+    def _advance_wandb_step(self, model: Model, count: int = 1) -> int:
+        """Advance the wandb step counter and return the new step.
+
+        Args:
+            model: The model to advance the step for
+            count: Number of steps to advance (default 1)
+
+        Returns:
+            The new step value after advancing
+        """
+        current = self._get_wandb_step(model)
+        new_step = current + count
+        self._wandb_steps[model.name] = new_step
+        return new_step
+
     def _log_metrics(
         self,
         model: Model,
@@ -767,7 +775,8 @@ class LocalBackend(Backend):
         step: int | None = None,
     ) -> None:
         metrics = {f"{split}/{metric}": value for metric, value in metrics.items()}
-        step = step if step is not None else self.__get_step(model)
+        # Use wandb step tracker for consistent step numbering
+        step = step if step is not None else self._get_wandb_step(model)
 
         with open(
             f"{get_model_dir(model=model, art_path=self._path)}/history.jsonl", "a"
@@ -784,12 +793,7 @@ class LocalBackend(Backend):
 
         # If we have a W&B run, log the data there
         if run := self._get_wandb_run(model):
-            # Mark the step metric itself as hidden so W&B doesn't create an automatic chart for it
-            wandb.define_metric("training_step", hidden=True)
-
-            # Enabling the following line will cause W&B to use the training_step metric as the x-axis for all metrics
-            # wandb.define_metric(f"{split}/*", step_metric="training_step")
-            run.log({"training_step": step, **metrics}, step=step)
+            run.log({"training_step": step, **metrics})
 
     def _get_wandb_run(self, model: Model) -> Run | None:
         if "WANDB_API_KEY" not in os.environ:
@@ -814,6 +818,10 @@ class LocalBackend(Backend):
                 ),
             )
             self._wandb_runs[model.name] = run
+            # Define training_step as the x-axis for all metrics
+            wandb.define_metric("training_step")
+            wandb.define_metric("train/*", step_metric="training_step")
+            wandb.define_metric("val/*", step_metric="training_step")
             os.environ["WEAVE_PRINT_CALL_LINK"] = os.getenv(
                 "WEAVE_PRINT_CALL_LINK", "False"
             )
