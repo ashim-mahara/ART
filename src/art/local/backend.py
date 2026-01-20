@@ -147,10 +147,6 @@ class LocalBackend(Backend):
                 from ..tinker.service import TinkerService
 
                 service_class = TinkerService
-            elif config.get("torchtune_args") is not None:
-                from ..torchtune.service import TorchtuneService
-
-                service_class = TorchtuneService
             else:
                 from ..unsloth.service import UnslothService
 
@@ -598,14 +594,6 @@ class LocalBackend(Backend):
         # Note: scale_learning_rate_by_reward_std_dev is now handled by the frontend (Model.train())
         results: list[dict[str, float]] = []
         estimated_gradient_steps = disk_packed_tensors["num_sequences"]
-        if torchtune_args := (model._internal_config or dev.InternalModelConfig()).get(
-            "torchtune_args"
-        ):
-            tp = torchtune_args.get("tensor_parallel_dim", 1)
-            cp = torchtune_args.get("context_parallel_dim", 1)
-            world_size = torch.cuda.device_count()
-            dp = world_size // (tp * cp)
-            estimated_gradient_steps = math.ceil(estimated_gradient_steps / dp)
         pbar = tqdm.tqdm(total=estimated_gradient_steps, desc="train")
         async for result in service.train(
             disk_packed_tensors, config, dev_config, verbose
