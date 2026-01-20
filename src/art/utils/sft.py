@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from art.model import TrainableModel
     from art.trajectories import Trajectory
     from art.types import SFTConfig
+    from art.dev import SFTConfig as DevSFTConfig
 
 
 @dataclass
@@ -139,7 +140,7 @@ def create_sft_dataset_iterator(
     batch_size: int = 1,
     chunk_size: int = 50,
     peak_lr: float = 2e-4,
-    schedule_type: Literal["cosine", "linear", "constant"] = "constant",
+    schedule_type: Literal["cosine", "linear", "constant"] = "linear",
     warmup_ratio: float = 0.1,
     initial_step: int = 0,
     use_tqdm: bool = True,
@@ -387,3 +388,102 @@ def iterate_file(
                         continue
 
                     yield _parse_jsonl_line(line)
+
+
+async def train_sft_from_file(
+    model: "TrainableModel",
+    file_path: str,
+    epochs: int = 1,
+    batch_size: int = 1,
+    chunk_size: int = 50,
+    peak_lr: float = 2e-4,
+    schedule_type: Literal["cosine", "linear", "constant"] = "linear",
+    warmup_ratio: float = 0.1,
+    initial_step: int = 0,
+    use_tqdm: bool = True,
+    _config: "DevSFTConfig | None" = None,
+    verbose: bool = False,
+) -> None:
+    """
+    Train a model using supervised fine-tuning from a JSONL file.
+
+    This is a convenience function that combines iterate_file() and
+    create_sft_dataset_iterator() to provide a simple interface for SFT training.
+
+    Args:
+        model: The TrainableModel to fine-tune. Must be registered with a backend.
+        file_path: Path to JSONL file containing training data. Each line should have:
+                   - messages: List of chat messages
+                   - tools: Optional list of tools
+        epochs: Number of times to iterate over the dataset. Default: 1
+        batch_size: Number of trajectories per batch (one weight update per batch). Default: 1
+        chunk_size: Number of batches to process per train_sft call. Default: 50.
+                    This is an internal optimization parameter and does not affect training.
+        peak_lr: Peak learning rate. Default: 2e-4
+        schedule_type: Learning rate schedule type ("cosine", "linear", "constant"). Default: "linear"
+        warmup_ratio: Ratio of total steps to use for warmup (0.0 to 1.0). Default: 0.1
+        initial_step: The global training step (batch) to start from. Default: 0.
+                      Useful for resuming training.
+        use_tqdm: Whether to display a progress bar. Default: True
+        _config: Additional experimental configuration. Use at your own risk.
+        verbose: Whether to print verbose output. Default: False
+
+    Example:
+        import art
+        from art.local import LocalBackend
+        from art.utils.sft import train_sft_from_file
+
+        async def main():
+            backend = LocalBackend()
+            model = art.TrainableModel(
+                name="my-model",
+                project="my-project",
+                base_model="Qwen/Qwen2.5-7B-Instruct",
+            )
+            await model.register(backend)
+
+            # Train with linear decay schedule
+            await train_sft_from_file(
+                model=model,
+                file_path="data/train.jsonl",
+                epochs=3,
+                batch_size=4,
+                peak_lr=2e-4,
+                schedule_type="linear",
+            )
+
+            # Train with cosine schedule and warmup
+            await train_sft_from_file(
+                model=model,
+                file_path="data/train.jsonl",
+                epochs=1,
+                batch_size=2,
+                peak_lr=1e-4,
+                schedule_type="cosine",
+                warmup_ratio=0.1,
+            )
+    """
+    # Load all trajectories into memory (needed for shuffling across epochs)
+    trajectories = list(iterate_file(file_path, epochs=1, shuffle=False))
+
+    if verbose:
+        print(f"Loaded {len(trajectories)} trajectories from {file_path}")
+
+    # Create dataset iterator and train
+    for chunk in create_sft_dataset_iterator(
+        trajectories=trajectories,
+        epochs=epochs,
+        batch_size=batch_size,
+        chunk_size=chunk_size,
+        peak_lr=peak_lr,
+        schedule_type=schedule_type,
+        warmup_ratio=warmup_ratio,
+        initial_step=initial_step,
+        use_tqdm=use_tqdm,
+    ):
+        await model.train_sft(
+            chunk.trajectories,
+            chunk.config,
+            _config=_config,
+            verbose=verbose,
+        )
