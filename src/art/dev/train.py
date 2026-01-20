@@ -31,7 +31,9 @@ positive advantages. Defaults to 0.0 (perfectly balanced)."""
     # Tinker built-in loss configuration (only used by TinkerBackend)
     # When set, uses Tinker's optimized built-in loss instead of ART's custom loss
     tinker_loss_fn: Literal["importance_sampling", "ppo", "cispo", "dro"] | None
-    tinker_loss_fn_config: dict[str, float] | None  # e.g., {"clip_low_threshold": 0.0, "clip_high_threshold": 6.0}
+    tinker_loss_fn_config: (
+        dict[str, float] | None
+    )  # e.g., {"clip_low_threshold": 0.0, "clip_high_threshold": 6.0}
 
     # Tinker checkpoint control (only used by TinkerBackend)
     # When False, skips saving full checkpoint (state + optimizer) after training.
