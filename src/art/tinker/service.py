@@ -332,9 +332,7 @@ class TinkerService:
                     add_generation_prompt=True,
                 )
             )
-            temperature = body.get("temperature")
-            if temperature is None:
-                temperature = 1.0
+            temperature = body.get("temperature", 1.0)
             sample_response = await sampler_client.sample_async(
                 prompt=prompt,
                 num_samples=body.get("n") or 1,
