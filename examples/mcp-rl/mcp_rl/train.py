@@ -168,7 +168,10 @@ async def train_mcp_agent(model: art.TrainableModel, use_skypilot: bool = False)
             await model.log(val_groups, split="val")
 
         print("starting train")
-        await model.train(groups, config=art.TrainConfig(learning_rate=learning_rate))
+        # Log trajectories and train using the backend-first API
+        await model.log(groups, split="train")
+        result = await backend.train(model, groups, learning_rate=learning_rate)
+        await model.log(metrics=result.metrics, step=result.step, split="train")
 
         await backend._experimental_push_to_s3(
             model,

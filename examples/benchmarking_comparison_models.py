@@ -127,7 +127,10 @@ async def train_model(model: art.TrainableModel):
             )
             for scenario in batch.items
         )
-        await model.train(groups)
+        # Log trajectories and train using the backend-first API
+        await model.log(groups, split="train")
+        result = await backend.train(model, groups)
+        await model.log(metrics=result.metrics, step=result.step, split="train")
 
         if batch.step % 20 == 0:
             # Every 20 steps let's benchmark our model under training so we can

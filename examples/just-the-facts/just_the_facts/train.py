@@ -81,13 +81,15 @@ async def train(
             ),
         )
 
-        await model.train(
+        # Log trajectories and train using the backend-first API
+        await model.log(groups, split="train")
+        result = await backend.train(
+            model,
             groups,
-            config=art.TrainConfig(learning_rate=model.config.learning_rate),
-            _config=art.dev.TrainConfig(
-                scale_rewards=model.config.scale_rewards,
-            ),
+            learning_rate=model.config.learning_rate,
+            scale_rewards=model.config.scale_rewards,
         )
+        await model.log(metrics=result.metrics, step=result.step, split="train")
 
         await backend._experimental_push_to_s3(model)
 

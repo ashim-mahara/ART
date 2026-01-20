@@ -86,7 +86,10 @@ async def main() -> None:
             [art.TrajectoryGroup(rollout(model, env_client) for env_client in env_pool)]
         )
 
-        await model.train(groups)
+        # Log trajectories and train using the backend-first API
+        await model.log(groups, split="train")
+        result = await backend.train(model, groups)
+        await model.log(metrics=result.metrics, step=result.step, split="train")
 
 
 asyncio.run(main())

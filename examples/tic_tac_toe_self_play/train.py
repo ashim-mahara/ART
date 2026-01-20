@@ -140,11 +140,13 @@ async def main():
             await model.log(model_trajectories, split="val")
 
         # await model.delete_checkpoints()
-        await model.train(
-            trajectory_groups=[x_trajectory_group, o_trajectory_group],
-            config=art.TrainConfig(learning_rate=2e-5),
-            verbose=True,
+        # Log trajectories and train using the backend-first API
+        trajectory_groups = [x_trajectory_group, o_trajectory_group]
+        await model.log(trajectory_groups, split="train")
+        result = await backend.train(
+            model, trajectory_groups, learning_rate=2e-5, verbose=True
         )
+        await model.log(metrics=result.metrics, step=result.step, split="train")
         await backend._experimental_push_to_s3(model)
 
     if DESTROY_AFTER_RUN:
