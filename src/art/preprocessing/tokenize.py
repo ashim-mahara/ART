@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from itertools import takewhile
 from typing import Any, Generator, cast
 
-import unsloth  # noqa: F401
+import unsloth  # noqa: F401 # Must import first to set UNSLOTH_IS_PRESENT env var
 
 import torch
 from PIL import Image
