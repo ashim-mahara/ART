@@ -1,14 +1,14 @@
 from datetime import datetime
 import json
 import os
-from typing import TYPE_CHECKING, Generic, Iterable, Optional, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Any, Generic, Iterable, Optional, cast, overload
 import warnings
 
 import httpx
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 import polars as pl
 from pydantic import BaseModel
-from typing_extensions import Never
+from typing_extensions import Never, TypeVar
 
 from . import dev
 from .trajectories import Trajectory, TrajectoryGroup
@@ -23,11 +23,12 @@ if TYPE_CHECKING:
 
 
 ModelConfig = TypeVar("ModelConfig", bound=BaseModel | None)
+StateType = TypeVar("StateType", bound=dict[str, Any], default=dict[str, Any])
 
 
 class Model(
     BaseModel,
-    Generic[ModelConfig],
+    Generic[ModelConfig, StateType],
 ):
     """
     A model is an object that can be passed to your `rollout` function, and used
@@ -129,7 +130,7 @@ class Model(
         inference_model_name: str | None = None,
         base_path: str = ".art",
         report_metrics: list[str] | None = None,
-    ) -> "Model[None]": ...
+    ) -> "Model[None, dict[str, Any]]": ...
 
     @overload
     def __new__(
@@ -145,14 +146,14 @@ class Model(
         inference_model_name: str | None = None,
         base_path: str = ".art",
         report_metrics: list[str] | None = None,
-    ) -> "Model[ModelConfig]": ...
+    ) -> "Model[ModelConfig, dict[str, Any]]": ...
 
-    def __new__(
+    def __new__(  # pyright: ignore[reportInconsistentOverload]
         cls,
         *args,
         **kwargs,
-    ) -> "Model[ModelConfig] | Model[None]":
-        return super().__new__(cls)
+    ) -> "Model[ModelConfig, StateType]":
+        return super().__new__(cls)  # type: ignore[return-value]
 
     def safe_model_dump(self, *args, **kwargs) -> dict:
         """
@@ -259,6 +260,47 @@ class Model(
     def _get_output_dir(self) -> str:
         """Get the output directory for this model."""
         return f"{self.base_path}/{self.project}/models/{self.name}"
+
+    def write_state(self, state: StateType) -> None:
+        """Write persistent state to the model directory as JSON.
+
+        This state is stored in `state.json` within the model's output directory
+        and can be used to track training progress, dataset position, or any
+        other information that should persist across runs.
+
+        Args:
+            state: A dictionary of JSON-serializable values to persist.
+
+        Example:
+            model.write_state({
+                "step": 5,
+                "dataset_offset": 100,
+                "last_checkpoint_time": "2024-01-15T10:30:00",
+            })
+        """
+        output_dir = self._get_output_dir()
+        os.makedirs(output_dir, exist_ok=True)
+        with open(f"{output_dir}/state.json", "w") as f:
+            json.dump(state, f, indent=2)
+
+    def read_state(self) -> StateType | None:
+        """Read persistent state from the model directory.
+
+        Returns:
+            The state dictionary if it exists, or None if no state has been saved.
+
+        Example:
+            state = model.read_state()
+            if state:
+                start_step = state["step"]
+                dataset_offset = state["dataset_offset"]
+        """
+        output_dir = self._get_output_dir()
+        state_path = f"{output_dir}/state.json"
+        if not os.path.exists(state_path):
+            return None
+        with open(state_path, "r") as f:
+            return json.load(f)
 
     def _get_wandb_run(self) -> Optional["Run"]:
         """Get or create the wandb run for this model."""
@@ -429,7 +471,7 @@ class Model(
 # ---------------------------------------------------------------------------
 
 
-class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
+class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateType]):
     base_model: str
     # Override discriminator field for FastAPI serialization
     trainable: bool = True
@@ -480,7 +522,7 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         base_path: str = ".art",
         report_metrics: list[str] | None = None,
         _internal_config: dev.InternalModelConfig | None = None,
-    ) -> "TrainableModel[None]": ...
+    ) -> "TrainableModel[None, dict[str, Any]]": ...
 
     @overload
     def __new__(
@@ -495,13 +537,13 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         base_path: str = ".art",
         report_metrics: list[str] | None = None,
         _internal_config: dev.InternalModelConfig | None = None,
-    ) -> "TrainableModel[ModelConfig]": ...
+    ) -> "TrainableModel[ModelConfig, dict[str, Any]]": ...
 
-    def __new__(
+    def __new__(  # pyright: ignore[reportInconsistentOverload]
         cls,
         *args,
         **kwargs,
-    ) -> "TrainableModel[ModelConfig] | TrainableModel[None]":
+    ) -> "TrainableModel[ModelConfig, StateType]":
         return super().__new__(cls)  # type: ignore
 
     def model_dump(self, *args, **kwargs) -> dict:
