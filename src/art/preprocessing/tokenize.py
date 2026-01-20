@@ -11,10 +11,11 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from ..trajectories import History, TrajectoryGroup, Trajectory, get_messages
 
-# Import Unsloth Zoo utilities for robust token matching
+# Import Unsloth Zoo utility for training on responses only
 # Source: https://github.com/unslothai/unsloth-zoo/blob/main/unsloth_zoo/dataset_utils.py
-# These functions handle edge cases with tokenization (newlines, spaces, etc.)
-from unsloth_zoo.dataset_utils import _find_common_token_ids
+# This function handles edge cases with tokenization (newlines, spaces, etc.)
+import unsloth  # noqa: F401 # Must import first to set UNSLOTH_IS_PRESENT env var
+from unsloth_zoo.dataset_utils import train_on_responses_only
 
 
 @dataclass
@@ -376,104 +377,18 @@ def tokenize_sft_batches(
     if pad_token_id is None:
         pad_token_id = tokenizer.eos_token_id
 
-    # Get most common tokens using Unsloth approach
-    Q_must, Q_left, Q_right = _find_common_token_ids(
-        instruction_part, tokenizer, force_match=False
+    # Get the _train_on_responses_only function from unsloth_zoo
+    # This handles edge cases with tokenization (newlines, spaces, etc.)
+    _train_on_responses_only = train_on_responses_only(
+        trainer=None,
+        instruction_part=instruction_part,
+        response_part=response_part,
+        force_match=False,
+        tokenizer=tokenizer,
+        return_function=True,
     )
-    A_must, A_left, A_right = _find_common_token_ids(
-        response_part, tokenizer, force_match=False
-    )
 
-    # Store temporary stuff
-    A_first = A_must[0]
-    len_A_must = len(A_must)
-    A_left_reversed = A_left[::-1]
-    A_right_forward = A_right
-
-    Q_first = Q_must[0]
-    len_Q_must = len(Q_must)
-    Q_left_reversed = Q_left[::-1]
-    Q_right_forward = Q_right
-
-    def _train_on_responses_only(input_ids: list[int]) -> list[int]:
-        """Unsloth-based implementation for marking trainable tokens."""
-        n = len(input_ids)
-        labels = [-100] * n
-        n_minus_1 = n - 1
-        j = 0
-
-        while j < n:
-            # Find <assistant>
-            if (input_ids[j] == A_first) and (
-                input_ids[j : (k := j + len_A_must)] == A_must
-            ):
-                # Now backtrack to get previous optional tokens
-                for optional_left in A_left_reversed:
-                    if j < 1:
-                        break
-                    if optional_left == input_ids[j - 1]:
-                        j -= 1
-                    else:
-                        break
-
-                # And forwards look as well
-                for optional_right in A_right_forward:
-                    if k >= n_minus_1:
-                        break
-                    if optional_right == input_ids[k + 1]:
-                        k += 1
-                    else:
-                        break
-
-                assistant_k = k
-                j = assistant_k
-
-                # Given <assistant>, now find next user
-                while j < n:
-                    # Find <user>
-                    # Also accept last final item if assistant is the last turn
-                    if (j == n_minus_1) or (
-                        (input_ids[j] == Q_first)
-                        and (input_ids[j : (k := j + len_Q_must)] == Q_must)
-                    ):
-                        # Now backtrack to get previous optional tokens
-                        for optional_left in Q_left_reversed:
-                            if j < 1:
-                                break
-                            if optional_left == input_ids[j - 1]:
-                                j -= 1
-                            else:
-                                break
-
-                        # And forwards look as well
-                        for optional_right in Q_right_forward:
-                            if k >= n_minus_1:
-                                break
-                            if optional_right == input_ids[k + 1]:
-                                k += 1
-                            else:
-                                break
-
-                        user_j = j
-
-                        # Account for last item
-                        if user_j != n_minus_1:
-                            j = k
-                        else:
-                            user_j = n
-                            k = n
-
-                        # Now copy input_ids to labels
-                        labels[assistant_k:user_j] = input_ids[assistant_k:user_j]
-                        break
-
-                    j += 1
-
-            j += 1
-
-        return labels
-
-    # Batch trajectories
+    # TODO Process input_ids in batch for better efficiency
     for batch_idx, lr in enumerate(learning_rates):
         start_idx = batch_idx * batch_size
         end_idx = start_idx + batch_size
@@ -499,7 +414,7 @@ def tokenize_sft_batches(
             # Create attention mask (all 1s - no padding yet)
             attention_mask = [1] * len(input_ids)
 
-            labels = _train_on_responses_only(input_ids)
+            labels = _train_on_responses_only({"input_ids": [input_ids]})["labels"][0]
 
             tokenized_trajectories.append(
                 {
