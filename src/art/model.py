@@ -597,7 +597,14 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         """
         if config is None:
             config = SFTConfig()
-        async for _ in self.backend()._train_sft(
+
+        # Get starting step for per-batch logging
+        step = await self.get_step()
+
+        # Train (backend yields metrics for each batch without logging)
+        async for metrics in self.backend()._train_sft(
             self, trajectories, config, _config or {}, verbose
         ):
-            pass
+            # Log each batch's metrics with incrementing step
+            step += 1
+            self._log_metrics(metrics, "train", step)

@@ -1,6 +1,4 @@
 import asyncio
-from datetime import datetime
-import json
 import math
 import os
 import subprocess
@@ -18,25 +16,19 @@ from transformers import AutoImageProcessor, AutoTokenizer
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from typing_extensions import Self
-import wandb
-from wandb.sdk.wandb_run import Run
 import weave
-from weave.trace.weave_client import WeaveClient
 
-from art.utils.old_benchmarking.calculate_step_metrics import calculate_step_std_dev
 from art.utils.output_dirs import (
     get_default_art_path,
     get_model_dir,
     get_output_dir_from_model_properties,
     get_step_checkpoint_dir,
-    get_trajectories_split_dir,
 )
 from art.utils.s3 import (
     ExcludableOption,
     pull_model_from_s3,
     push_model_to_s3,
 )
-from art.utils.trajectory_logging import write_trajectory_groups_parquet
 from mp_actors import close_proxy, move_to_child_process
 
 from .. import dev
@@ -79,9 +71,6 @@ class LocalBackend(Backend):
         self._services: dict[str, ModelService] = {}
         self._tokenizers: dict[str, PreTrainedTokenizerBase] = {}
         self._image_processors: dict[str, BaseImageProcessor | None] = {}
-        self._wandb_runs: dict[str, Run] = {}
-        self._weave_clients: dict[str, WeaveClient] = {}
-        self._wandb_steps: dict[str, int] = {}  # Track wandb step per model
 
     def __enter__(self) -> Self:
         return self
@@ -124,9 +113,16 @@ class LocalBackend(Backend):
 
         auto_migrate_on_register(output_dir)
 
-        # Initialize wandb and weave early if this is a trainable model
+        # Initialize wandb early if this is a trainable model
+        # (wandb initialization is now handled by the model's _get_wandb_run method)
         if model.trainable and "WANDB_API_KEY" in os.environ:
-            _ = self._get_wandb_run(model)
+            _ = model._get_wandb_run()
+            # Initialize weave for tracing
+            os.environ["WEAVE_PRINT_CALL_LINK"] = os.getenv(
+                "WEAVE_PRINT_CALL_LINK", "False"
+            )
+            os.environ["WEAVE_LOG_LEVEL"] = os.getenv("WEAVE_LOG_LEVEL", "CRITICAL")
+            weave.init(model.project)
 
     async def _get_service(self, model: TrainableModel) -> ModelService:
         from ..dev.get_model_config import get_model_config
@@ -365,55 +361,6 @@ class LocalBackend(Backend):
                         raise
                     # Otherwise, continue and try again
 
-    async def _log(
-        self,
-        model: Model,
-        trajectory_groups: list[TrajectoryGroup],
-        split: str = "val",
-    ) -> None:
-        # Save logs for trajectory groups
-        parent_dir = get_trajectories_split_dir(
-            get_model_dir(model=model, art_path=self._path), split
-        )
-        os.makedirs(parent_dir, exist_ok=True)
-
-        # Get the file name for the current iteration, or default to 0 for non-trainable models
-        iteration = self.__get_step(model)
-        file_name = f"{iteration:04d}.parquet"
-
-        # Write the logs to Parquet file (with ZSTD compression)
-        write_trajectory_groups_parquet(trajectory_groups, f"{parent_dir}/{file_name}")
-
-        # Collect all metrics (including reward) across all trajectories
-        all_metrics: dict[str, list[float]] = {"reward": [], "exception_rate": []}
-
-        for group in trajectory_groups:
-            for trajectory in group:
-                if isinstance(trajectory, BaseException):
-                    all_metrics["exception_rate"].append(1)
-                    continue
-                else:
-                    all_metrics["exception_rate"].append(0)
-                # Add reward metric
-                all_metrics["reward"].append(trajectory.reward)
-
-                # Collect other custom metrics
-                for metric, value in trajectory.metrics.items():
-                    if metric not in all_metrics:
-                        all_metrics[metric] = []
-                    all_metrics[metric].append(float(value))
-
-        # Calculate averages for all metrics
-        averages = {}
-        for metric, values in all_metrics.items():
-            if len(values) > 0:
-                averages[metric] = sum(values) / len(values)
-
-        # Calculate average standard deviation of rewards within groups
-        averages["reward_std_dev"] = calculate_step_std_dev(trajectory_groups)
-
-        self._log_metrics(model, averages, split)
-
     def _trajectory_log(self, trajectory: Trajectory) -> str:
         """Format a trajectory into a readable log string."""
         header = f"reward: {trajectory.reward} {' '.join(f'{k}: {v}' for k, v in trajectory.metrics.items())}\n\n"
@@ -437,9 +384,7 @@ class LocalBackend(Backend):
         if verbose:
             print("Starting _train_model")
         service = await self._get_service(model)
-        if verbose:
-            print("Logging training data to disk...")
-        await self._log(model, trajectory_groups, "train")
+        # Note: Trajectory logging is handled by the frontend (Model.train())
         if verbose:
             print("Packing tensors...")
 
@@ -642,11 +587,7 @@ class LocalBackend(Backend):
             pbar.update(1)
             pbar.set_postfix({"loss": f"{result.get('loss', 0):.4f}"})
 
-            # Advance wandb step and log metrics
-            # This ensures monotonically increasing steps across SFT and RL
-            current_step = self._advance_wandb_step(model)
-            self._log_metrics(model, result, "train", step=current_step)
-
+            # Note: Metrics logging is handled by the frontend (Model.train_sft())
             yield result
         pbar.close()
 
@@ -740,94 +681,6 @@ class LocalBackend(Backend):
             print(f'No "train/reward_std_dev" metric found in history')
 
         return learning_rate_multiplier
-
-    def _get_wandb_step(self, model: Model) -> int:
-        """Get the current wandb step for a model.
-
-        Initializes from checkpoint step if not yet tracked.
-        This ensures monotonically increasing steps across SFT and RL training.
-        """
-        if model.name not in self._wandb_steps:
-            # Initialize from checkpoint step
-            self._wandb_steps[model.name] = self.__get_step(model)
-        return self._wandb_steps[model.name]
-
-    def _advance_wandb_step(self, model: Model, count: int = 1) -> int:
-        """Advance the wandb step counter and return the new step.
-
-        Args:
-            model: The model to advance the step for
-            count: Number of steps to advance (default 1)
-
-        Returns:
-            The new step value after advancing
-        """
-        current = self._get_wandb_step(model)
-        new_step = current + count
-        self._wandb_steps[model.name] = new_step
-        return new_step
-
-    def _log_metrics(
-        self,
-        model: Model,
-        metrics: dict[str, float],
-        split: str,
-        step: int | None = None,
-    ) -> None:
-        metrics = {f"{split}/{metric}": value for metric, value in metrics.items()}
-        # Use wandb step tracker for consistent step numbering
-        step = step if step is not None else self._get_wandb_step(model)
-
-        with open(
-            f"{get_model_dir(model=model, art_path=self._path)}/history.jsonl", "a"
-        ) as f:
-            f.write(
-                json.dumps(
-                    {
-                        k: v for k, v in metrics.items() if v == v
-                    }  # Filter out NaN values
-                    | {"step": step, "recorded_at": datetime.now().isoformat()}
-                )
-                + "\n"
-            )
-
-        # If we have a W&B run, log the data there
-        if run := self._get_wandb_run(model):
-            run.log({"training_step": step, **metrics})
-
-    def _get_wandb_run(self, model: Model) -> Run | None:
-        if "WANDB_API_KEY" not in os.environ:
-            return None
-        if (
-            model.name not in self._wandb_runs
-            or self._wandb_runs[model.name]._is_finished
-        ):
-            run = wandb.init(
-                project=model.project,
-                name=model.name,
-                id=model.name,
-                resume="allow",
-                settings=wandb.Settings(
-                    x_stats_open_metrics_endpoints={
-                        "vllm": "http://localhost:8000/metrics",
-                    },
-                    x_stats_open_metrics_filters=(
-                        "vllm.vllm:num_requests_waiting",
-                        "vllm.vllm:num_requests_running",
-                    ),
-                ),
-            )
-            self._wandb_runs[model.name] = run
-            # Define training_step as the x-axis for all metrics
-            wandb.define_metric("training_step")
-            wandb.define_metric("train/*", step_metric="training_step")
-            wandb.define_metric("val/*", step_metric="training_step")
-            os.environ["WEAVE_PRINT_CALL_LINK"] = os.getenv(
-                "WEAVE_PRINT_CALL_LINK", "False"
-            )
-            os.environ["WEAVE_LOG_LEVEL"] = os.getenv("WEAVE_LOG_LEVEL", "CRITICAL")
-            self._weave_clients[model.name] = weave.init(model.project)
-        return self._wandb_runs[model.name]
 
     # ------------------------------------------------------------------
     # Experimental support for S3
