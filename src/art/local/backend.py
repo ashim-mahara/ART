@@ -1,4 +1,5 @@
 import asyncio
+import json
 import math
 import os
 import subprocess
@@ -533,7 +534,7 @@ class LocalBackend(Backend):
             learning_rates = [config.learning_rate] * num_batches
 
         # Tokenize trajectories into batches
-        from ..preprocessing.tokenize_sft import tokenize_sft_batches
+        from ..preprocessing.tokenize import tokenize_sft_batches
         from ..utils.model_config import get_instruction_response_parts
 
         # Get instruction/response parts (from config or auto-detect)

@@ -14,7 +14,7 @@ load_dotenv()
 if not os.environ.get("OPENROUTER_API_KEY"):
     raise ValueError("OPENROUTER_API_KEY environment variable is required")
 
-TEACHER_MODEL = "qwen/qwen-2.5-72b-instruct"
+TEACHER_MODEL = "qwen/qwen3-235b-a22b-2507"
 STUDENT_BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 PROMPT = "Explain the concept of recursion in programming with a simple example."
 
@@ -47,7 +47,7 @@ async def main():
     # Train student model
     backend = LocalBackend()
     student = art.TrainableModel(
-        name="distillation-demo-10",
+        name="distillation-demo-11",
         project="sft-distillation",
         base_model=STUDENT_BASE_MODEL,
     )
