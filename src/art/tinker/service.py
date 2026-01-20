@@ -104,6 +104,10 @@ class TinkerService:
         packed_tensors = packed_tensors_from_dir(**disk_packed_tensors)
         state = await self._state_task
 
+        # Check if using Tinker's built-in loss function
+        tinker_loss_fn = _config.get("tinker_loss_fn")
+        tinker_loss_fn_config = _config.get("tinker_loss_fn_config")
+
         def custom_loss_fn(
             _: list[tinker.Datum],
             logprobs_list: list[torch.Tensor],
@@ -134,35 +138,69 @@ class TinkerService:
                     ][0]
                 ]
             ]
-            forward_backward_output_future = (
-                await state.training_client.forward_backward_custom_async(
-                    data=[
-                        tinker.Datum(
-                            loss_fn_inputs={
-                                "target_tokens": tinker.TensorData.from_torch(
-                                    shifted_tokens[i][mask]
-                                ),
-                                "weights": tinker.TensorData.from_torch(
-                                    torch.ones_like(
-                                        shifted_tokens[i][mask], dtype=torch.float32
-                                    )
-                                ),
-                            },
-                            model_input=tinker.ModelInput.from_ints(
-                                packed_tensors["tokens"][i][mask].tolist()
+
+            if tinker_loss_fn:
+                # Use Tinker's optimized built-in loss function
+                # Build datums with logprobs and advantages for the built-in loss
+                datums = [
+                    tinker.Datum(
+                        loss_fn_inputs={
+                            "target_tokens": tinker.TensorData.from_torch(
+                                shifted_tokens[i][mask]
                             ),
-                        )
-                        for mask in masks
-                    ],
-                    loss_fn=partial(
-                        custom_loss_fn,
-                        masks=masks,
-                        inputs=create_train_inputs(
-                            packed_tensors, i, config, _config, False
+                            "logprobs": tinker.TensorData.from_torch(
+                                shift_tensor(packed_tensors["logprobs"][i], 0.0)[mask]
+                            ),
+                            "advantages": tinker.TensorData.from_torch(
+                                shift_tensor(packed_tensors["advantages"][i], 0.0)[mask]
+                            ),
+                        },
+                        model_input=tinker.ModelInput.from_ints(
+                            packed_tensors["tokens"][i][mask].tolist()
                         ),
-                    ),
+                    )
+                    for mask in masks
+                ]
+                forward_backward_output_future = (
+                    await state.training_client.forward_backward_async(
+                        data=datums,
+                        loss_fn=tinker_loss_fn,
+                        loss_fn_config=tinker_loss_fn_config,
+                    )
                 )
-            )
+            else:
+                # Use ART's custom loss function (default behavior)
+                datums = [
+                    tinker.Datum(
+                        loss_fn_inputs={
+                            "target_tokens": tinker.TensorData.from_torch(
+                                shifted_tokens[i][mask]
+                            ),
+                            "weights": tinker.TensorData.from_torch(
+                                torch.ones_like(
+                                    shifted_tokens[i][mask], dtype=torch.float32
+                                )
+                            ),
+                        },
+                        model_input=tinker.ModelInput.from_ints(
+                            packed_tensors["tokens"][i][mask].tolist()
+                        ),
+                    )
+                    for mask in masks
+                ]
+                forward_backward_output_future = (
+                    await state.training_client.forward_backward_custom_async(
+                        data=datums,
+                        loss_fn=partial(
+                            custom_loss_fn,
+                            masks=masks,
+                            inputs=create_train_inputs(
+                                packed_tensors, i, config, _config, False
+                            ),
+                        ),
+                    )
+                )
+
             optim_step_future = await state.training_client.optim_step_async(
                 adam_params=tinker.AdamParams(learning_rate=config.learning_rate),
             )
@@ -173,13 +211,26 @@ class TinkerService:
                 **forward_backward_output.metrics,
                 **(optim_step_response.metrics or {}),
             }
+
+        # Save checkpoint or just sampler weights based on config
         last_checkpoint_dir = self._get_last_checkpoint_dir()
         assert last_checkpoint_dir is not None, "No checkpoint found"
         next_step = int(last_checkpoint_dir.name) + 1
-        new_sampler_client = await self._save_checkpoint(
-            last_checkpoint_dir.with_name(f"{next_step:04d}"),
-            state.training_client,
-        )
+
+        save_checkpoint = _config.get("tinker_save_checkpoint", True)
+        if save_checkpoint:
+            # Full checkpoint: saves training state + optimizer + sampler weights
+            new_sampler_client = await self._save_checkpoint(
+                last_checkpoint_dir.with_name(f"{next_step:04d}"),
+                state.training_client,
+            )
+        else:
+            # Fast path: only save sampler weights for inference
+            new_sampler_client = await self._save_sampler_weights_only(
+                next_step,
+                state.training_client,
+            )
+
         # Add new sampler client to the dict and update latest step
         state.sampler_clients[next_step] = new_sampler_client
         state.latest_step = next_step
@@ -274,6 +325,10 @@ class TinkerService:
     async def _save_checkpoint(
         self, checkpoint_dir: Path, training_client: tinker.TrainingClient
     ) -> tinker.SamplingClient:
+        """Save full checkpoint (training state + optimizer + sampler weights).
+
+        This is slower but enables full resumption of training.
+        """
         with log_timing("Saving Tinker checkpoint"):
             state_response, sampler_response = await asyncio.gather(
                 *await asyncio.gather(
@@ -290,6 +345,25 @@ class TinkerService:
             },
             open(checkpoint_dir / "info.yaml", "w"),
         )
+        with log_timing("Creating Tinker sampling client"):
+            sampling_client = await training_client.create_sampling_client_async(
+                model_path=sampler_response.path
+            )
+        return sampling_client
+
+    async def _save_sampler_weights_only(
+        self, step: int, training_client: tinker.TrainingClient
+    ) -> tinker.SamplingClient:
+        """Save only sampler weights (fast, for inference only).
+
+        This is faster but does NOT save optimizer state, so training cannot
+        be resumed from this step. Use this when you only need the model for
+        inference and will save full checkpoints at specific intervals.
+        """
+        with log_timing("Saving sampler weights"):
+            sampler_response = await (
+                await training_client.save_weights_for_sampler_async(f"{step:04d}")
+            )
         with log_timing("Creating Tinker sampling client"):
             sampling_client = await training_client.create_sampling_client_async(
                 model_path=sampler_response.path
