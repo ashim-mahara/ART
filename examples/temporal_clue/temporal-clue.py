@@ -85,10 +85,10 @@ async def main():
         await model.log(val_groups)
         await model.delete_checkpoints()
         await backend._experimental_push_to_s3(model)
-        # Log trajectories and train using the backend-first API
-        await model.log(train_groups, split="train")
         result = await backend.train(model, train_groups, learning_rate=5e-5)
-        await model.log(metrics=result.metrics, step=result.step, split="train")
+        await model.log(
+            train_groups, metrics=result.metrics, step=result.step, split="train"
+        )
 
 
 if __name__ == "__main__":

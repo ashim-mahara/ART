@@ -85,10 +85,10 @@ async def run_training_loop(
                 for prompt in prompts
             ]
         )
-        # New backend-first API: log trajectories explicitly, then train
-        await model.log(train_groups, split="train")
         result = await backend.train(model, train_groups, learning_rate=1e-5)
-        await model.log(metrics=result.metrics, step=result.step, split="train")
+        await model.log(
+            train_groups, metrics=result.metrics, step=result.step, split="train"
+        )
         results.append(result)
 
     return results

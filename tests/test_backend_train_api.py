@@ -87,11 +87,7 @@ async def main():
                 rewards = [t.reward for t in group]
                 print(f"   Group {i} ({prompts[i]}): rewards = {rewards}")
 
-            print("\n3. Logging trajectories with model.log()...")
-            await model.log(train_groups, split="train")
-            print("   ✓ Trajectories logged")
-
-            print("\n4. Training with backend.train()...")
+            print("\n3. Training with backend.train()...")
             result = await backend.train(
                 model,
                 train_groups,
@@ -99,11 +95,13 @@ async def main():
                 verbose=True,
             )
 
-            print("\n5. Logging training metrics...")
-            await model.log(metrics=result.metrics, step=result.step, split="train")
-            print("   ✓ Training metrics logged")
+            print("\n4. Logging trajectories and training metrics...")
+            await model.log(
+                train_groups, metrics=result.metrics, step=result.step, split="train"
+            )
+            print("   ✓ Trajectories and metrics logged")
 
-            print("\n6. Checking TrainResult...")
+            print("\n5. Checking TrainResult...")
             print(f"   Result type: {type(result).__name__}")
             print(f"   Step: {result.step}")
             print(f"   Metrics: {result.metrics}")

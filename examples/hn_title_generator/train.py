@@ -325,12 +325,12 @@ async def main():
             )
             continue
 
-        # Log trajectories and train using the backend-first API
-        await model.log(valid_train_groups, split="train")
         result = await backend.train(
             model, valid_train_groups, learning_rate=LEARNING_RATE
         )
-        await model.log(metrics=result.metrics, step=result.step, split="train")
+        await model.log(
+            valid_train_groups, metrics=result.metrics, step=result.step, split="train"
+        )
 
         if batch.step > 0 and batch.step % EVAL_STEPS == 0:
             print(f"\n--- Evaluating at Step {batch.step} ---")
