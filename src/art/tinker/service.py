@@ -201,8 +201,16 @@ class TinkerService:
                     )
                 )
 
+            # Build Adam params with optional beta1/beta2/eps from config
+            adam_params = tinker.AdamParams(learning_rate=config.learning_rate)
+            if "adam_beta1" in _config:
+                adam_params.beta1 = _config["adam_beta1"]
+            if "adam_beta2" in _config:
+                adam_params.beta2 = _config["adam_beta2"]
+            if "adam_eps" in _config:
+                adam_params.eps = _config["adam_eps"]
             optim_step_future = await state.training_client.optim_step_async(
-                adam_params=tinker.AdamParams(learning_rate=config.learning_rate),
+                adam_params=adam_params,
             )
             forward_backward_output, optim_step_response = await asyncio.gather(
                 forward_backward_output_future, optim_step_future

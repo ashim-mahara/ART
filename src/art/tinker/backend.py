@@ -67,6 +67,10 @@ class TinkerBackend(LocalBackend):
         tinker_loss_fn: Literal["importance_sampling", "ppo", "cispo", "dro"]
         | None = None,
         tinker_loss_fn_config: dict[str, float] | None = None,
+        # Adam optimizer parameters
+        adam_beta1: float | None = None,
+        adam_beta2: float | None = None,
+        adam_eps: float | None = None,
     ) -> LocalTrainResult:
         """Train the model on trajectory groups, with optional Tinker built-in loss.
 
@@ -90,19 +94,25 @@ class TinkerBackend(LocalBackend):
                 If None, uses ART's custom loss (controlled by ppo, epsilon, etc.)
             tinker_loss_fn_config: Config dict for built-in loss, e.g.:
                 {"clip_low_threshold": 0.0, "clip_high_threshold": 6.0}
+            adam_beta1: Adam optimizer beta1 parameter. Defaults to Tinker default (0.9).
+            adam_beta2: Adam optimizer beta2 parameter. Defaults to Tinker default (0.999).
+            adam_eps: Adam optimizer epsilon parameter. Defaults to Tinker default (1e-8).
             **other_args: See LocalBackend.train() for other parameters.
 
         Returns:
             LocalTrainResult with step number, training metrics, and checkpoint path.
 
         Example:
-            # Use Tinker's built-in CISPO (recommended for speed)
+            # Use Tinker's built-in CISPO with custom Adam params
             result = await backend.train(
                 model,
                 trajectory_groups,
                 learning_rate=5e-6,
                 tinker_loss_fn="cispo",
                 tinker_loss_fn_config={"clip_low_threshold": 0.0, "clip_high_threshold": 6.0},
+                adam_beta1=0.9,
+                adam_beta2=0.95,  # Custom beta2
+                adam_eps=1e-8,
             )
 
             # Use ART's custom loss (default, for compatibility)
@@ -153,6 +163,14 @@ class TinkerBackend(LocalBackend):
 
         # Tinker-specific: checkpoint control
         dev_config["tinker_save_checkpoint"] = save_checkpoint
+
+        # Tinker-specific: Adam optimizer parameters
+        if adam_beta1 is not None:
+            dev_config["adam_beta1"] = adam_beta1
+        if adam_beta2 is not None:
+            dev_config["adam_beta2"] = adam_beta2
+        if adam_eps is not None:
+            dev_config["adam_eps"] = adam_eps
 
         # Collect metrics from training
         training_metrics: list[dict[str, float]] = []
