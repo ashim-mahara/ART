@@ -1,18 +1,21 @@
-from dataclasses import dataclass
-from itertools import takewhile
+# ruff: noqa: I001
+# Import order is intentional - unsloth MUST be imported before transformers
 import math
 import random
+from dataclasses import dataclass
+from itertools import takewhile
 from typing import Any, Generator, cast
 
-from PIL import Image
+import unsloth  # noqa: F401
+
 import torch
+from PIL import Image
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 # Import Unsloth Zoo utility for training on responses only
 # Source: https://github.com/unslothai/unsloth-zoo/blob/main/unsloth_zoo/dataset_utils.py
 # This function handles edge cases with tokenization (newlines, spaces, etc.)
-import unsloth  # noqa: F401 # Must import first to set UNSLOTH_IS_PRESENT env var
 from unsloth_zoo.dataset_utils import train_on_responses_only
 
 from ..trajectories import History, Trajectory, TrajectoryGroup, get_messages
@@ -335,6 +338,7 @@ def tokenize_trajectory(
         pixel_values=pixel_values,
         image_grid_thw=image_grid_thw,
     )
+
 
 def tokenize_sft_batches(
     trajectories: list[Trajectory],
