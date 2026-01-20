@@ -332,7 +332,6 @@ class TinkerService:
                     add_generation_prompt=True,
                 )
             )
-            temperature=body.get("temperature", 1.0)
             sample_response = await sampler_client.sample_async(
                 prompt=prompt,
                 num_samples=body.get("n") or 1,
@@ -340,7 +339,7 @@ class TinkerService:
                     max_tokens=body.get("max_completion_tokens")
                     or body.get("max_tokens"),
                     seed=body.get("seed"),
-                    temperature=temperature,
+                    temperature=body.get("temperature", 1.0),
                     top_k=body.get("top_k") or -1,
                     top_p=body.get("top_p") or 1.0,
                 ),
