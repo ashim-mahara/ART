@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING, Generator, List, Literal
 from tqdm.auto import tqdm
 
 if TYPE_CHECKING:
+    from art.dev import SFTConfig as DevSFTConfig
     from art.model import TrainableModel
     from art.trajectories import Trajectory
     from art.types import SFTConfig
-    from art.dev import SFTConfig as DevSFTConfig
 
 
 @dataclass
@@ -117,9 +117,13 @@ def create_lr_schedule(
             lr = min_lr + (peak_lr - min_lr) * ((step + 1) / warmup_steps)
         else:
             # Decay phase: progress goes from 0 to 1
-            progress = (step - warmup_steps) / (decay_steps - 1) if decay_steps > 1 else 0
+            progress = (
+                (step - warmup_steps) / (decay_steps - 1) if decay_steps > 1 else 0
+            )
             if method == "cosine":
-                lr = min_lr + (peak_lr - min_lr) * 0.5 * (1 + math.cos(math.pi * progress))
+                lr = min_lr + (peak_lr - min_lr) * 0.5 * (
+                    1 + math.cos(math.pi * progress)
+                )
             elif method == "linear":
                 lr = peak_lr - (peak_lr - min_lr) * progress
             elif method == "constant":
@@ -272,19 +276,15 @@ def create_sft_dataset_iterator(
             num_batches_in_chunk = math.ceil(len(step_indices) / batch_size)
 
             # Calculate global batch step at the start of this chunk
-            global_batch_step = (
-                epoch * batches_per_epoch + (chunk_start // batch_size)
-            )
+            global_batch_step = epoch * batches_per_epoch + (chunk_start // batch_size)
 
             for batch_idx in range(num_batches_in_chunk):
                 chunk_lrs.append(custom_lr_schedule[global_batch_step + batch_idx])
 
             # Create SFTConfig with custom learning rate schedule
-            # global_step is the step at the START of this chunk (for wandb logging)
             config = SFTConfig(
                 batch_size=batch_size,
                 custom_lr_schedule=chunk_lrs,
-                global_step=global_batch_step,
             )
 
             # epoch_step is the batch step within the current epoch
@@ -304,7 +304,6 @@ def create_sft_dataset_iterator(
 
     if progress_bar:
         progress_bar.close()
-
 
 
 def iterate_file(

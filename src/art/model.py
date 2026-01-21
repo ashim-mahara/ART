@@ -315,6 +315,7 @@ class Model(
         self,
         trajectories: Iterable[Trajectory | BaseException] | Iterable[TrajectoryGroup],
         split: str = "val",
+        step: int | None = None,
     ) -> None:
         """
         Log the model's performance for an evaluation batch of trajectories or trajectory groups.
@@ -322,6 +323,7 @@ class Model(
         Args:
             trajectories: A batch of trajectories or trajectory groups.
             split: The evaluation's split. Defaults to "val".
+            step: The step to log at. If None, uses the current checkpoint step.
         """
         # Convert to list[TrajectoryGroup]
         if any(isinstance(t, Trajectory) for t in trajectories) or any(
@@ -335,8 +337,9 @@ class Model(
         else:
             trajectory_groups = cast(list[TrajectoryGroup], list(trajectories))
 
-        # Get the current step
-        step = await self.get_step() if self.trainable else 0
+        # Get the current step if not provided
+        if step is None:
+            step = await self.get_step() if self.trainable else 0
 
         # Ensure output directories exist
         output_dir = self._get_output_dir()
@@ -403,9 +406,6 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
     # Use at your own risk.
     _internal_config: dev.InternalModelConfig | None = None
 
-    # Runtime training step counter (not persisted, initialized lazily from checkpoint)
-    _training_step: int | None = None
-
     def __init__(
         self,
         *,
@@ -434,8 +434,6 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         if _internal_config is not None:
             # Bypass BaseModel __setattr__ to allow setting private attr
             object.__setattr__(self, "_internal_config", _internal_config)
-        # Initialize training step counter (will be set lazily from checkpoint on first use)
-        object.__setattr__(self, "_training_step", None)
 
     @overload
     def __new__(
@@ -541,21 +539,6 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         # Backend only does file deletion
         await self.backend()._delete_checkpoint_files(self, steps_to_keep)
 
-    async def _get_training_step(self) -> int:
-        """Get the current training step, initializing from checkpoint if needed."""
-        if self._training_step is None:
-            # Initialize from checkpoint count on first use
-            checkpoint_step = await self.get_step()
-            object.__setattr__(self, "_training_step", checkpoint_step)
-        return self._training_step  # type: ignore
-
-    def _increment_training_step(self, count: int = 1) -> int:
-        """Increment the training step counter and return the new value."""
-        current = self._training_step or 0
-        new_step = current + count
-        object.__setattr__(self, "_training_step", new_step)
-        return new_step
-
     async def train(
         self,
         trajectory_groups: Iterable[TrajectoryGroup],
@@ -575,31 +558,24 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         groups_list = list(trajectory_groups)
         _config = _config or {}
 
-        # 1. Log trajectories first (frontend handles this now)
-        await self.log(groups_list, split="train")
-
-        # 2. Train (backend no longer logs internally)
+        # 1. Train (backend saves checkpoint)
         training_metrics: list[dict[str, float]] = []
         async for metrics in self.backend()._train_model(
             self, groups_list, config, _config, verbose
         ):
             training_metrics.append(metrics)
 
-        # 3. Log training metrics (loss, gradient norms, etc.)
+        # 2. Get step from checkpoint (backend already saved it)
+        step = await self.get_step()
+
+        # 3. Log trajectories and training metrics at the same step
+        await self.log(groups_list, split="train", step=step)
         if training_metrics:
             avg_metrics = {
                 k: sum(d.get(k, 0) for d in training_metrics)
                 / sum(1 for d in training_metrics if k in d)
                 for k in {k for d in training_metrics for k in d}
-                if k != "num_gradient_steps"
             }
-            # Get total gradient steps from metrics (defaults to 1 if not provided)
-            num_gradient_steps = sum(
-                int(m.get("num_gradient_steps", 1)) for m in training_metrics
-            )
-            # Initialize step counter if needed, then increment by gradient steps
-            await self._get_training_step()
-            step = self._increment_training_step(num_gradient_steps)
             self._log_metrics(avg_metrics, "train", step)
 
     async def train_sft(
@@ -623,13 +599,8 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         if config is None:
             config = SFTConfig()
 
-        # Get starting step for per-batch logging
-        # Use config.global_step if provided (for chunked training via train_sft_from_file),
-        # otherwise use the model's internal step counter
-        if config.global_step is not None:
-            step = config.global_step
-        else:
-            step = await self._get_training_step()
+        # Get starting step from checkpoint for per-batch logging
+        step = await self.get_step()
 
         # Train (backend yields metrics for each batch without logging)
         async for metrics in self.backend()._train_sft(
@@ -638,6 +609,3 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
             # Log each batch's metrics with incrementing step
             step += 1
             self._log_metrics(metrics, "train", step)
-
-        # Update the internal step counter to stay in sync
-        object.__setattr__(self, "_training_step", step)

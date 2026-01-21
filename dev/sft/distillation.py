@@ -20,7 +20,6 @@ PROMPT = "Explain the concept of recursion in programming with a simple example.
 
 
 async def main():
-
     # Get completion from teacher model
     teacher_client = AsyncOpenAI(
         api_key=os.environ["OPENROUTER_API_KEY"],
@@ -33,7 +32,9 @@ async def main():
         messages=[{"role": "user", "content": PROMPT}],
     )
     teacher_response = completion.choices[0].message.content
-    print(f"Teacher response ({len(teacher_response)} chars):\n{teacher_response[:500]}...")
+    print(
+        f"Teacher response ({len(teacher_response)} chars):\n{teacher_response[:500]}..."
+    )
 
     # Create trajectory from teacher completion
     trajectory = art.Trajectory(
@@ -54,7 +55,11 @@ async def main():
     await student.register(backend)
 
     print(f"Training student model ({STUDENT_BASE_MODEL})...")
-    await student.train_sft([trajectory, trajectory, trajectory], config=art.SFTConfig(learning_rate=2e-4), verbose=True)
+    await student.train_sft(
+        [trajectory, trajectory, trajectory],
+        config=art.SFTConfig(learning_rate=2e-4),
+        verbose=True,
+    )
     print("Training complete!")
 
 

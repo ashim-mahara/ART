@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 import art
 from art.local import LocalBackend
 
-
 # Teacher trajectories - high-quality examples from a "strong model"
 # These always respond with "maybe" which has the highest reward (1.0)
 TEACHER_TRAJECTORIES = [
