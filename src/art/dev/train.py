@@ -40,3 +40,8 @@ positive advantages. Defaults to 0.0 (perfectly balanced)."""
     # Sampler weights are still saved for inference. Use this for faster training
     # when you only need full checkpoints at specific intervals.
     tinker_save_checkpoint: bool
+
+    # Adam optimizer parameters (only used by TinkerBackend)
+    adam_beta1: float
+    adam_beta2: float
+    adam_eps: float
