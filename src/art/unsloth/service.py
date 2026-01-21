@@ -485,6 +485,7 @@ class UnslothService:
 
         import time
 
+        # The training loop
         for batch_idx, batch in enumerate(sft_batches):
             batch_start_time = time.perf_counter()
             batch_loss = 0.0

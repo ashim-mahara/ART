@@ -280,11 +280,11 @@ def create_sft_dataset_iterator(
                 chunk_lrs.append(custom_lr_schedule[global_batch_step + batch_idx])
 
             # Create SFTConfig with custom learning rate schedule
-            # global_step is the step at the END of this chunk (for wandb logging)
+            # global_step is the step at the START of this chunk (for wandb logging)
             config = SFTConfig(
                 batch_size=batch_size,
                 custom_lr_schedule=chunk_lrs,
-                global_step=global_batch_step + num_batches_in_chunk,
+                global_step=global_batch_step,
             )
 
             # epoch_step is the batch step within the current epoch
