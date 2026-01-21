@@ -17,7 +17,7 @@ SFT_TRAJECTORIES = [
         ],
         reward=0.0,  # reward unused for SFT
     ),
-] * 5
+] * 10
 
 
 async def rl_rollout(client, model_name: str, prompt: str) -> art.Trajectory:
@@ -39,7 +39,7 @@ async def main():
 
     backend = LocalBackend()
     model = art.TrainableModel(
-        name="sft-rl-switch-test-11",
+        name="sft-rl-switch-test-13",
         project="sft-rl-demo",
         base_model="Qwen/Qwen2.5-7B-Instruct",
     )
@@ -48,12 +48,12 @@ async def main():
     # ========================================================================
     # Phase 1: SFT
     # ========================================================================
-    # print("\n[Phase 1] SFT training...")
-    # await model.train_sft(
-    #     SFT_TRAJECTORIES,
-    #     config=art.SFTConfig(learning_rate=1e-4),
-    # )
-    # print("SFT phase 1 complete.")
+    print("\n[Phase 1] SFT training...")
+    await model.train_sft(
+        SFT_TRAJECTORIES,
+        config=art.SFTConfig(learning_rate=2e-6),
+    )
+    print("SFT phase 1 complete.")
 
     # ========================================================================
     # Phase 2: RL (GRPO)
@@ -62,7 +62,7 @@ async def main():
     client = model.openai_client()
     prompt = "respond with yes, no, or maybe"
 
-    for i in range(10):
+    for i in range(5):
         print(f"  RL step {i + 1}")
         train_groups = await art.gather_trajectory_groups(
             [
@@ -73,17 +73,37 @@ async def main():
             ]
         )
         await model.train(train_groups, config=art.TrainConfig(learning_rate=1e-5))
-    print("RL phase complete.")
+    print("RL phase 2 complete.")
 
     # ========================================================================
     # Phase 3: SFT again
     # ========================================================================
     print("\n[Phase 3] SFT training again...")
     await model.train_sft(
-        SFT_TRAJECTORIES * 10,
-        config=art.SFTConfig(batch_size=1, learning_rate=2e-4),
+        SFT_TRAJECTORIES,
+        config=art.SFTConfig(batch_size=1, learning_rate=2e-6),
     )
     print("SFT phase 3 complete.")
+
+    # ========================================================================
+    # Phase 4: RL (GRPO) again
+    # ========================================================================
+    print("\n[Phase 4] RL training...")
+    client = model.openai_client()
+    prompt = "respond with yes, no, or maybe"
+
+    for i in range(5):
+        print(f"  RL step {i + 1}")
+        train_groups = await art.gather_trajectory_groups(
+            [
+                art.TrajectoryGroup(
+                    rl_rollout(client, model.name, prompt) for _ in range(6)
+                )
+                for _ in range(12)
+            ]
+        )
+        await model.train(train_groups, config=art.TrainConfig(learning_rate=1e-5))
+    print("RL phase 4 complete.")
 
     # ========================================================================
     # Test: Check model output
