@@ -44,7 +44,7 @@ async def main():
     global model
     base_model = os.environ.get("BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
     model = art.TrainableModel(
-        name=os.environ.get("MODEL_NAME", "0113"),
+        name=os.environ.get("MODEL_NAME", "0115"),
         project="yes-no-maybe",
         base_model=base_model,
         # _internal_config=art.dev.InternalModelConfig(
