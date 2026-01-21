@@ -204,12 +204,11 @@ def tokenize_trajectory(
     token_template_messages: list[dict[str, Any]] = []
     for original, message in zip(messages_and_choices, messages):
         trainable_assistant = (
-            (not isinstance(original, dict) and original.logprobs is not None)
-            or (
-                allow_training_without_logprobs
-                and isinstance(original, dict)
-                and original.get("role") == "assistant"
-            )
+            not isinstance(original, dict) and original.logprobs is not None
+        ) or (
+            allow_training_without_logprobs
+            and isinstance(original, dict)
+            and original.get("role") == "assistant"
         )
         if trainable_assistant:
             token_template_messages.append(
@@ -217,14 +216,14 @@ def tokenize_trajectory(
                     "role": "assistant",
                     "content": sentinal_token,
                     **(
-                        {"tool_calls": message["tool_calls"]}
-                        if message.get("tool_calls")
+                        {"tool_calls": message.get("tool_calls")}  # type: ignore[call-overload]
+                        if message.get("tool_calls")  # type: ignore[call-overload]
                         else {}
                     ),
                 }
             )
         else:
-            token_template_messages.append(message)
+            token_template_messages.append(cast(dict[str, Any], message))
     token_ids = cast(
         list[int],
         tokenizer.apply_chat_template(
