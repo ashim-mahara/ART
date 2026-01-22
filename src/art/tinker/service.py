@@ -69,12 +69,15 @@ class TinkerService:
     _openai_server_task: asyncio.Task[None] | None = None
 
     async def start_openai_server(self, config: dev.OpenAIServerConfig | None) -> None:
+        # Determine the port upfront so both server and client use the same port
+        _config = config or {}
+        host = _config.get("host", "0.0.0.0")
+        port = _config.get("port") or get_free_port()
+
         self._openai_server_task = asyncio.create_task(
-            self._run_openai_server(config, await self._state_task)
+            self._run_openai_server(host, port, await self._state_task)
         )
-        client = AsyncOpenAI(
-            base_url=f"http://{(config or {}).get('host', '0.0.0.0')}:{(config or {}).get('port', 8000)}/v1"
-        )
+        client = AsyncOpenAI(base_url=f"http://{host}:{port}/v1")
         with log_timing("Waiting for server"):
             start = time.time()
             while True:
@@ -387,9 +390,8 @@ class TinkerService:
         return sampling_client
 
     async def _run_openai_server(
-        self, config: dev.OpenAIServerConfig | None, state: "TinkerState"
+        self, host: str, port: int, state: "TinkerState"
     ) -> None:
-        config = config or {}
         app = FastAPI()
 
         @app.get("/metrics")
@@ -495,8 +497,8 @@ class TinkerService:
 
         server_config = uvicorn.Config(
             app,
-            host=config.get("host", "0.0.0.0"),
-            port=config.get("port", get_free_port()),
+            host=host,
+            port=port,
             log_level="error",
         )
         server = uvicorn.Server(server_config)
