@@ -56,7 +56,7 @@ async def main():
 
     print(f"Training student model ({STUDENT_BASE_MODEL})...")
     await student.train_sft(
-        [trajectory, trajectory, trajectory],
+        [trajectory],
         config=art.SFTConfig(learning_rate=2e-4),
         verbose=True,
     )

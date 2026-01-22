@@ -308,16 +308,12 @@ def create_sft_dataset_iterator(
 
 def iterate_file(
     file_path: str,
-    epochs: int,
     shuffle: bool = True,
     shuffle_buffer_size: int = 10000,
     seed: int | None = 42,
 ) -> Generator["Trajectory", None, None]:
     """
-    Read JSONL file for each epoch, yielding individual Trajectory objects.
-
-    Completes reading the entire file for one epoch before starting the next epoch.
-    This ensures all trajectories from epoch N are yielded before any from epoch N+1.
+    Read JSONL file and yield individual Trajectory objects.
 
     Each line should contain a dict with:
     - messages: List of chat messages
@@ -328,7 +324,6 @@ def iterate_file(
 
     Args:
         file_path: Path to JSONL file (one JSON object per line)
-        epochs: Number of times to read through the file
         shuffle: Whether to shuffle trajectories. Defaults to True.
         shuffle_buffer_size: Size of shuffle buffer for streaming shuffle. Default: 10000.
                             Only used if shuffle=True.
@@ -343,53 +338,52 @@ def iterate_file(
 
     Example:
         # With shuffle
-        for trajectory in iterate_file("data.jsonl", epochs=3, shuffle=True):
+        for trajectory in iterate_file("data.jsonl", shuffle=True):
             # trajectory is a single Trajectory object
             process(trajectory)
 
         # No shuffle
-        for trajectory in iterate_file("data.jsonl", epochs=3, shuffle=False):
+        for trajectory in iterate_file("data.jsonl", shuffle=False):
             process(trajectory)
     """
     if not file_path.endswith(".jsonl"):
         raise ValueError(f"Only JSONL files are supported. Got: {file_path}")
 
-    for epoch in range(epochs):
-        # Use local Random instance to avoid modifying global random state
-        if seed is not None:
-            rng = random.Random(seed + epoch)
-        else:
-            rng = random.Random()
+    # Use local Random instance to avoid modifying global random state
+    if seed is not None:
+        rng = random.Random(seed)
+    else:
+        rng = random.Random()
 
-        if shuffle:
-            # Streaming shuffle with buffer
-            shuffle_buffer: List["Trajectory"] = []
+    if shuffle:
+        # Streaming shuffle with buffer
+        shuffle_buffer: List["Trajectory"] = []
 
-            with open(file_path, "r") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
+        with open(file_path, "r") as f:
+            for line in f:
+                if not line.strip():
+                    continue
 
-                    traj = _parse_jsonl_line(line)
-                    shuffle_buffer.append(traj)
+                traj = _parse_jsonl_line(line)
+                shuffle_buffer.append(traj)
 
-                    # Once buffer is full, start yielding randomly
-                    if len(shuffle_buffer) >= shuffle_buffer_size:
-                        idx = rng.randint(0, len(shuffle_buffer) - 1)
-                        yield shuffle_buffer.pop(idx)
+                # Once buffer is full, start yielding randomly
+                if len(shuffle_buffer) >= shuffle_buffer_size:
+                    idx = rng.randint(0, len(shuffle_buffer) - 1)
+                    yield shuffle_buffer.pop(idx)
 
-            # Flush remaining items in shuffle buffer at end of epoch
-            rng.shuffle(shuffle_buffer)
-            for traj in shuffle_buffer:
-                yield traj
-        else:
-            # No shuffle - sequential reading
-            with open(file_path, "r") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
+        # Flush remaining items in shuffle buffer
+        rng.shuffle(shuffle_buffer)
+        for traj in shuffle_buffer:
+            yield traj
+    else:
+        # No shuffle - sequential reading
+        with open(file_path, "r") as f:
+            for line in f:
+                if not line.strip():
+                    continue
 
-                    yield _parse_jsonl_line(line)
+                yield _parse_jsonl_line(line)
 
 
 async def train_sft_from_file(
@@ -466,7 +460,7 @@ async def train_sft_from_file(
             )
     """
     # Load all trajectories into memory (needed for shuffling across epochs)
-    trajectories = list(iterate_file(file_path, epochs=1, shuffle=False))
+    trajectories = list(iterate_file(file_path, shuffle=False))
 
     if verbose:
         print(f"Loaded {len(trajectories)} trajectories from {file_path}")

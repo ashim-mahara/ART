@@ -96,15 +96,14 @@ def test_iterate_file():
         trajectories = list(
             iterate_file(
                 str(jsonl_file),
-                epochs=2,
                 shuffle=False,
             )
         )
 
-        # Should have 20 trajectories (10 per epoch * 2 epochs)
-        assert len(trajectories) == 20
+        # Should have 10 trajectories
+        assert len(trajectories) == 10
 
-        # Verify the content - first epoch should be in order
+        # Verify the content - should be in order
         for i in range(10):
             assert f"Message {i}" in str(trajectories[i].messages_and_choices)
 
@@ -121,14 +120,13 @@ def test_iterate_file_with_shuffle():
         trajectories = list(
             iterate_file(
                 str(jsonl_file),
-                epochs=2,
                 shuffle=True,
                 shuffle_buffer_size=10,
             )
         )
 
-        # Should have 200 trajectories
-        assert len(trajectories) == 200
+        # Should have 100 trajectories
+        assert len(trajectories) == 100
 
     finally:
         jsonl_file.unlink()

@@ -379,6 +379,7 @@ def tokenize_sft_batches(
     # Import Unsloth Zoo utility for training on responses only
     # Source: https://github.com/unslothai/unsloth-zoo/blob/main/unsloth_zoo/dataset_utils.py
     # This function handles edge cases with tokenization (newlines, spaces, etc.)
+    import unsloth  # noqa: F401 - Must be imported first to set UNSLOTH_IS_PRESENT env var
     from unsloth_zoo.dataset_utils import train_on_responses_only
 
     # Validate inputs
