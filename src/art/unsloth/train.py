@@ -164,8 +164,6 @@ def get_compute_loss_fn(trainer: "GRPOTrainer") -> Callable[..., torch.Tensor]:
             _config,
         )
 
-        # === Async RL Diagnostic Metrics ===
-        # Log importance ratio statistics to diagnose off-policy issues
         trainer._metrics["train"]["importance_ratio/mean"].append(
             loss.importance_ratio_mean
         )

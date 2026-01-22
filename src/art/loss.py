@@ -143,10 +143,8 @@ def loss_fn(
     else:
         mean_entropy = None
 
-    # === Async RL Diagnostic Metrics ===
-    # Log importance ratio statistics to diagnose off-policy issues
+    # Compute importance ratio statistics for async RL diagnostics
     with torch.no_grad():
-        # Only consider assistant tokens for metrics
         assistant_prob_ratio = prob_ratio[assistant_mask > 0]
         assistant_logprob_diff = logprob_diff[assistant_mask > 0]
         if assistant_prob_ratio.numel() > 0:
@@ -155,15 +153,12 @@ def loss_fn(
             importance_ratio_max = assistant_prob_ratio.max().item()
             importance_ratio_std = assistant_prob_ratio.std().item()
 
-            # Count tokens with extreme ratios (would be masked)
-            MASK_RATIO_LOW = 0.125
-            MASK_RATIO_HIGH = 8.0
-            is_masked_low = assistant_prob_ratio < MASK_RATIO_LOW
-            is_masked_high = assistant_prob_ratio > MASK_RATIO_HIGH
-            is_masked = is_masked_low | is_masked_high
             num_assistant_tokens = assistant_prob_ratio.numel()
-
-            async_masked_fraction = is_masked.sum().item() / num_assistant_tokens
+            is_masked_low = assistant_prob_ratio < 0.125
+            is_masked_high = assistant_prob_ratio > 8.0
+            async_masked_fraction = (
+                is_masked_low | is_masked_high
+            ).sum().item() / num_assistant_tokens
             async_masked_low_fraction = (
                 is_masked_low.sum().item() / num_assistant_tokens
             )
@@ -171,8 +166,6 @@ def loss_fn(
                 is_masked_high.sum().item() / num_assistant_tokens
             )
 
-            # Mismatch KL: token-level divergence from inference policy
-            # Formula: exp(log_ratio) - log_ratio - 1
             mismatch_kl = torch.exp(assistant_logprob_diff) - assistant_logprob_diff - 1
             async_mismatch_kl = mismatch_kl.mean().item()
         else:

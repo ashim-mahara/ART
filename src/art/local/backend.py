@@ -144,7 +144,6 @@ class LocalBackend(Backend):
         from ..dev.get_model_config import get_model_config
 
         if model.name not in self._services:
-            logger.info(f"[BACKEND] Creating service for model: {model.name}")
             config = get_model_config(
                 base_model=model.base_model,
                 output_dir=get_model_dir(model=model, art_path=self._path),
@@ -159,7 +158,6 @@ class LocalBackend(Backend):
                 from ..unsloth.async_service import AsyncService
 
                 service_class = AsyncService
-                logger.info("[BACKEND] Using AsyncService")
             else:
                 from ..unsloth.service import UnslothService
 
@@ -173,20 +171,13 @@ class LocalBackend(Backend):
                 config=config,
                 output_dir=get_model_dir(model=model, art_path=self._path),
             )
-            logger.info(f"[BACKEND] Service initialized: {service_class.__name__}")
-
             if not self._in_process:
-                logger.info("[BACKEND] Moving service to child process...")
                 # Kill all "model-service" processes to free up GPU memory
                 subprocess.run(["pkill", "-9", "model-service"])
                 self._services[model.name] = move_to_child_process(
                     self._services[model.name],
                     process_name="tinker-service" if is_tinker else "model-service",
                 )
-                # at this point model-service exists in child process
-                logger.info("[BACKEND] Service moved to child process")
-        else:
-            logger.info(f"[BACKEND] Reusing existing service for model: {model.name}")
         return self._services[model.name]
 
     def _get_packed_tensors(
@@ -286,35 +277,12 @@ class LocalBackend(Backend):
         model: TrainableModel,
         config: dev.OpenAIServerConfig | None = None,
     ) -> tuple[str, str]:
-        logger.info("=" * 80)
-        logger.info("[BACKEND] Preparing backend for training")
-        logger.info("=" * 80)
-        logger.info(f"[BACKEND] Model: {model.name}")
-        logger.info(f"[BACKEND] Base model: {model.base_model}")
-
-        logger.info("[BACKEND] Step 1: Getting service...")
         service = await self._get_service(model)
-
-        logger.info("[BACKEND] Step 3: Starting OpenAI server...")
         await service.start_openai_server(config=config)
         server_args = (config or {}).get("server_args", {})
 
         base_url = f"http://{server_args.get('host', '0.0.0.0')}:{server_args.get('port', 8000)}/v1"
         api_key = server_args.get("api_key", None) or "default"
-        logger.info("")
-        logger.info("[BACKEND] Step 3: OpenAI server started")
-        logger.info(f"[BACKEND]   Base URL: {base_url}")
-        logger.info(f"[BACKEND]   API Key: {api_key}")
-        logger.info("")
-
-        # NOTE: Disabled, monitor seems to randomly cause shutdowns in async setting
-        # def done_callback(_: asyncio.Task[None]) -> None:
-        #     logger.info("OpenAI server Monitor done callback is called")
-        #     close_proxy(self._services.pop(model.name))
-        #
-        # asyncio.create_task(
-        #     self._monitor_openai_server(model.name, base_url, api_key)
-        # ).add_done_callback(done_callback)
 
         return base_url, api_key
 

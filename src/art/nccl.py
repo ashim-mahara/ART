@@ -174,8 +174,6 @@ class NCCLBroadcastSender:
         self.logger.info("Broadcasting weights to inference pool")
 
         state_dict = model.state_dict()
-        self.logger.debug(f"State dict keys: {state_dict.keys()}")
-        #
         num_layers = get_max_layer_num(state_dict)
         self.logger.info(f"Number of layers: {num_layers}")
 
@@ -205,8 +203,6 @@ class NCCLBroadcastSender:
     def broadcast_lora(
         self, model: torch.nn.Module, peft_config: dict | None = None
     ) -> None:
-        self.logger.debug("Broadcasting LoRA weights to inference pool")
-
         lora_tensors = {}
         # Extract LoRA tensors from state dict
         for key, value in model.state_dict().items():

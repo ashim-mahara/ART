@@ -79,8 +79,7 @@ class NCCLWeightUpdateWorker(Worker):
 
     def update_lora_weights(self) -> None:
         """Update LoRA weights with the nccl communicator."""
-        logger = init_logger("vllm.inference.vllm.worker_nccl")
-
+        logger = init_logger(__name__)
         tensors, peft_config_dict = self.nccl_broadcast.receive_lora_dict()
 
         if peft_config_dict is None:
@@ -92,8 +91,6 @@ class NCCLWeightUpdateWorker(Worker):
             peft_helper = PEFTHelper.from_dict(self.model_runner.lora_config.__dict__)
         else:
             peft_helper = PEFTHelper.from_dict(peft_config_dict)
-
-        logger.info(f"[NCCL_WORKER] DEBUG: Tensors keys: {tensors.keys()}")
 
         lora_id = 1
 

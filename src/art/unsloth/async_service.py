@@ -113,7 +113,6 @@ class AsyncService:
 
         AsyncLLMEngine.from_engine_args = _from_engine_args
         init_args["load_in_4bit"] = False
-        logger.info(f"[ASYNC_SERVICE] DEBUG: Init args: {init_args}")
         model, tokenizer = cast(
             tuple[CausalLM, PreTrainedTokenizerBase],
             unsloth.FastLanguageModel.from_pretrained(**init_args),
@@ -474,15 +473,7 @@ class AsyncService:
             # We need to access the underlying model which has the merged weights
             state_dict = self.state.peft_model.base_model.model.state_dict()
 
-            # Filter out lora keys if any remain (usually merge_adapter merges them into the weights)
-            # but we want to be sure we are sending clean weights
-            logger.info(
-                f"[ASYNC_SERVICE] DEBUG: State dict number of keys: {len(state_dict.keys())}"
-            )
             clean_state_dict = {k: v for k, v in state_dict.items() if "lora_" not in k}
-            logger.info(
-                f"[ASYNC_SERVICE] DEBUG: Clean state dict number of keys: {len(clean_state_dict.keys())}"
-            )
             merged_wrapper = StateDictWrapper(clean_state_dict)
 
             async def _broadcast():
@@ -493,27 +484,13 @@ class AsyncService:
                     )
 
             async def _trigger():
-                # Wait a bit to ensure the broadcaster is ready/started before we tell the server to receive
-                # Although asyncio.gather starts them "concurrently", the broadcast operation is heavy
-                # and we want to make sure we don't timeout the HTTP request if the broadcast takes long to prep?
-                # Actually, the server will block on receive_state_dict immediately upon receiving the request.
-                # The sender (us) will block on broadcast_state_dict.
-                # We just need both to happen.
-                base_url = "http://localhost:8000"
                 logger.info("Triggering inference server update...")
-                # We might need a slight delay or just rely on the fact that broadcast_state_dict takes time to setup?
-                # Ideally we just fire both.
-                await asyncio.sleep(
-                    0.1
-                )  # Small yield to ensure broadcast thread starts
+                await asyncio.sleep(0.1)
                 async with httpx.AsyncClient(timeout=300) as client:
                     response = await client.post(
-                        f"{base_url}/update_weights",
+                        "http://localhost:8000/update_weights",
                     )
                     response.raise_for_status()
-                    logger.info(
-                        f"[ASYNC_SERVICE] DEBUG: State dict update triggered successfully"
-                    )
 
             await asyncio.gather(_broadcast(), _trigger())
 
@@ -524,25 +501,15 @@ class AsyncService:
             del merged_wrapper
 
     async def _update_lora_weights_via_nccl(self) -> None:
-        """Triggers the weight update on the vLLM engine via NCCL."""
-        # Note: The /update_weights endpoint is on the root, not under /v1
+        """Triggers the LoRA weight update on the vLLM engine via NCCL."""
         if not self.nccl_broadcast:
             logger.warning("NCCL broadcaster not initialized")
             raise RuntimeError
 
-        # Extract PEFT config
-        logger.info(
-            f"[ASYNC_SERVICE] DEBUG: Peft config: {self.state.peft_model.peft_config}"
-        )
         peft_config = self.state.peft_model.peft_config["default"]
-        logger.info(f"[ASYNC_SERVICE] DEBUG: Peft config (default): {peft_config}")
-        # Convert to dict if it's an object, or use it directly
         config_dict = (
             peft_config.to_dict() if hasattr(peft_config, "to_dict") else peft_config
         )
-        logger.info(f"[ASYNC_SERVICE] DEBUG: Peft config (dict): {config_dict}")
-        # Filter for relevant fields for PEFTHelper
-        # r, lora_alpha, target_modules, bias, modules_to_save, use_rslora, use_dora
         relevant_keys = [
             "r",
             "lora_alpha",
@@ -555,10 +522,6 @@ class AsyncService:
         filtered_config = {
             k: config_dict.get(k) for k in relevant_keys if k in config_dict
         }
-        logger.info(f"[ASYNC_SERVICE] DEBUG: Filtered config: {filtered_config}")
-        logger.info(
-            f"[ASYNC_SERVICE] DEBUG: Broadcasting LoRA adapter weights keys: {self.state.peft_model.state_dict().keys()}"
-        )
 
         async def _broadcast():
             await asyncio.to_thread(
@@ -568,33 +531,25 @@ class AsyncService:
             )
 
         async def _trigger():
-            logger.info("Triggering inference server update...")
-            base_url = "http://localhost:8000"
+            logger.info("Triggering inference server LoRA update...")
             await asyncio.sleep(0.1)
             async with httpx.AsyncClient(timeout=300) as client:
                 response = await client.post(
-                    f"{base_url}/update_lora_weights",
+                    "http://localhost:8000/update_lora_weights",
                 )
                 response.raise_for_status()
-                logger.info(
-                    f"[ASYNC_SERVICE] DEBUG: LoRA adapter update triggered successfully"
-                )
 
         await asyncio.gather(_broadcast(), _trigger())
 
     async def _load_lora_adapter(self, lora_path: str) -> None:
         """Loads or refreshes the LoRA adapter by name in the vLLM server."""
-        base_url = "http://localhost:8000/v1"
-        api_key = "default"
-        logger.info(f"[ASYNC_SERVICE] DEBUG: Loading LoRA adapter: {lora_path}")
         async with httpx.AsyncClient(timeout=300) as client:
             response = await client.post(
-                f"{base_url}/load_lora_adapter",
+                "http://localhost:8000/v1/load_lora_adapter",
                 json={"lora_name": self.model_name, "lora_path": lora_path},
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={"Authorization": "Bearer default"},
             )
             response.raise_for_status()
-            logger.info(f"[ASYNC_SERVICE] DEBUG: LoRA adapter loaded successfully")
 
     def close(self) -> None:
         vllm_process = getattr(self, "_vllm_process", None)
