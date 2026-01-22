@@ -40,11 +40,11 @@ def with_quotes(w: str) -> str:
 async def main():
     load_dotenv()
 
-    backend = LocalBackend()
+    backend = art.TinkerBackend()
     global model
-    base_model = os.environ.get("BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+    base_model = os.environ.get("BASE_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507")
     model = art.TrainableModel(
-        name=os.environ.get("MODEL_NAME", "0115"),
+        name=os.environ.get("MODEL_NAME", "012"),
         project="yes-no-maybe",
         base_model=base_model,
         # _internal_config=art.dev.InternalModelConfig(
