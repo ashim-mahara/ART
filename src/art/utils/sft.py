@@ -250,8 +250,8 @@ def create_sft_dataset_iterator(
     for epoch in range(epochs):
         # Create indices and shuffle deterministically based on epoch
         indices = list(range(dataset_size))
-        random.seed(epoch)
-        random.shuffle(indices)
+        rng = random.Random(epoch)
+        rng.shuffle(indices)
 
         for chunk_idx in range(chunks_per_epoch):
             # Calculate global chunk index for skipping
@@ -355,8 +355,11 @@ def iterate_file(
         raise ValueError(f"Only JSONL files are supported. Got: {file_path}")
 
     for epoch in range(epochs):
-        if shuffle and seed is not None:
-            random.seed(seed + epoch)
+        # Use local Random instance to avoid modifying global random state
+        if seed is not None:
+            rng = random.Random(seed + epoch)
+        else:
+            rng = random.Random()
 
         if shuffle:
             # Streaming shuffle with buffer
@@ -372,11 +375,11 @@ def iterate_file(
 
                     # Once buffer is full, start yielding randomly
                     if len(shuffle_buffer) >= shuffle_buffer_size:
-                        idx = random.randint(0, len(shuffle_buffer) - 1)
+                        idx = rng.randint(0, len(shuffle_buffer) - 1)
                         yield shuffle_buffer.pop(idx)
 
             # Flush remaining items in shuffle buffer at end of epoch
-            random.shuffle(shuffle_buffer)
+            rng.shuffle(shuffle_buffer)
             for traj in shuffle_buffer:
                 yield traj
         else:
