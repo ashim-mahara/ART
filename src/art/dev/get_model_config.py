@@ -1,6 +1,5 @@
 from .engine import EngineArgs
 from .model import InitArgs, InternalModelConfig, PeftArgs, TrainerArgs
-from .torchtune import TorchtuneArgs
 
 
 def get_model_config(
@@ -30,10 +29,6 @@ def get_model_config(
     init_args.update(config.get("init_args", {}))
     if last_checkpoint_dir := get_last_checkpoint_dir(output_dir):
         init_args["model_name"] = last_checkpoint_dir
-        if config.get("torchtune_args") is not None:
-            engine_args["model"] = last_checkpoint_dir
-    elif config.get("torchtune_args") is not None:
-        engine_args["model"] = base_model
     peft_args = PeftArgs(
         lora_alpha=16,
         r=8,
@@ -68,16 +63,10 @@ def get_model_config(
         weight_decay=0.1,
     )
     trainer_args.update(config.get("trainer_args", {}))
-    if config.get("torchtune_args") is not None:
-        torchtune_args = TorchtuneArgs(model="qwen3_32b", model_type="QWEN3")
-        torchtune_args.update(config.get("torchtune_args", {}) or {})
-    else:
-        torchtune_args = None
     return InternalModelConfig(
         init_args=init_args,
         engine_args=engine_args,
         peft_args=peft_args,
         tinker_args=config.get("tinker_args"),
         trainer_args=trainer_args,
-        torchtune_args=torchtune_args,
     )

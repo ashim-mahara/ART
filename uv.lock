@@ -2772,11 +2772,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/bd/1a875e0d592d447cbc02805fd3fe0f497714d6a2583f59d14fa9ebad96eb/huggingface_hub-0.36.0-py3-none-any.whl", hash = "sha256:7bcc9ad17d5b3f07b57c78e79d527102d08313caa278a641993acddcb894548d", size = 566094, upload-time = "2025-10-23T12:11:59.557Z" },
 ]
 
-[package.optional-dependencies]
-hf-transfer = [
-    { name = "hf-transfer" },
-]
-
 [[package]]
 name = "hyperframe"
 version = "6.1.0"
@@ -3378,21 +3373,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/26/2d/ef58fed122b268c69c0aa099da20bc67657cdfb2e222688d5731bd5b971d/jupyterlab_widgets-3.0.16.tar.gz", hash = "sha256:423da05071d55cf27a9e602216d35a3a65a3e41cdf9c5d3b643b814ce38c19e0", size = 897423, upload-time = "2025-11-01T21:11:29.724Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ab/b5/36c712098e6191d1b4e349304ef73a8d06aed77e56ceaac8c0a306c7bda1/jupyterlab_widgets-3.0.16-py3-none-any.whl", hash = "sha256:45fa36d9c6422cf2559198e4db481aa243c7a32d9926b500781c830c80f7ecf8", size = 914926, upload-time = "2025-11-01T21:11:28.008Z" },
-]
-
-[[package]]
-name = "kagglehub"
-version = "0.3.13"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "packaging" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/1c/12/e13c1c8b203535b15dacc420c0f1596dda67463175ff1e4404af21815bdd/kagglehub-0.3.13.tar.gz", hash = "sha256:d3c8b6250627d665096cd91a9487559bf5ed61be607eaf63d14511b20eea646e", size = 113694, upload-time = "2025-08-26T16:17:33.486Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/8e/4077b08b95a1f8302c694a8b399bd413815fbe89045c41e6e08cd7d9439a/kagglehub-0.3.13-py3-none-any.whl", hash = "sha256:e00dec8b81396cbad9c7b5eb62a33cf8ae27da26227abd196ed8f054c845ca00", size = 68257, upload-time = "2025-08-26T16:17:32.13Z" },
 ]
 
 [[package]]
@@ -5010,19 +4990,6 @@ wheels = [
 ]
 
 [[package]]
-name = "omegaconf"
-version = "2.3.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "antlr4-python3-runtime" },
-    { name = "pyyaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/09/48/6388f1bb9da707110532cb70ec4d2822858ddfb44f1cdf1233c20a80ea4b/omegaconf-2.3.0.tar.gz", hash = "sha256:d5d4b6d29955cc50ad50c46dc269bcd92c6e00f5f90d23ab5fee7bfca4ba4cc7", size = 3298120, upload-time = "2022-12-08T20:59:22.753Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e3/94/1843518e420fa3ed6919835845df698c7e27e183cb997394e4a670973a65/omegaconf-2.3.0-py3-none-any.whl", hash = "sha256:7b4df175cdb08ba400f45cae3bdcae7ba8365db4d165fc65fd04b050ab63b46b", size = 79500, upload-time = "2022-12-08T20:59:19.686Z" },
-]
-
-[[package]]
 name = "openai"
 version = "2.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5090,6 +5057,7 @@ dependencies = [
     { name = "nest-asyncio" },
     { name = "openai" },
     { name = "polars" },
+    { name = "setproctitle" },
     { name = "tblib" },
     { name = "tinker" },
     { name = "tinker-cookbook" },
@@ -5110,11 +5078,9 @@ backend = [
     { name = "peft" },
     { name = "pyarrow" },
     { name = "pytest" },
-    { name = "setproctitle" },
     { name = "setuptools" },
     { name = "torch" },
     { name = "torchao" },
-    { name = "torchtune" },
     { name = "transformers" },
     { name = "trl" },
     { name = "unsloth" },
@@ -5176,7 +5142,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'backend'", specifier = ">=8.4.1" },
     { name = "seaborn", marker = "extra == 'plotting'", specifier = ">=0.13.2" },
     { name = "semver", marker = "extra == 'skypilot'", specifier = ">=3.0.4" },
-    { name = "setproctitle", marker = "extra == 'backend'", specifier = ">=1.3.6" },
+    { name = "setproctitle", specifier = ">=1.3.6" },
     { name = "setuptools", marker = "extra == 'backend'", specifier = ">=78.1.0" },
     { name = "skypilot", extras = ["cudo", "do", "fluidstack", "gcp", "lambda", "kubernetes", "paperspace", "runpod"], marker = "extra == 'skypilot'", specifier = "==0.10.5" },
     { name = "tblib", specifier = ">=3.0.0" },
@@ -5184,7 +5150,6 @@ requires-dist = [
     { name = "tinker-cookbook", specifier = ">=0.1.0" },
     { name = "torch", marker = "extra == 'backend'", specifier = ">=2.8.0" },
     { name = "torchao", marker = "extra == 'backend'", specifier = "==0.14.1" },
-    { name = "torchtune", marker = "extra == 'backend'", git = "https://github.com/pytorch/torchtune.git?rev=2344509cf83bd886538fe3e8263e5145d1afb5c2" },
     { name = "transformers", marker = "extra == 'backend'", specifier = ">=4.55.2,<=4.57.3" },
     { name = "trl", marker = "extra == 'backend'", specifier = "==0.20.0" },
     { name = "typer", specifier = ">=0.15.2" },
@@ -8520,40 +8485,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ab/65/a35a182519b40dcd2cedaf5fdcac6f724ae2451c534dfcece6ff5f85f983/torchaudio-2.9.0-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:742143d9d62769bc4b9a2977ca4f4720e0a5e922bdc5df585c155e0a1f545461", size = 477752, upload-time = "2025-10-15T15:52:18.14Z" },
     { url = "https://files.pythonhosted.org/packages/6f/1c/30272b71ae08817eaca00bb856ebef25dd44041329579903c1915b57f0c9/torchaudio-2.9.0-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:0a234634e1142fb2652c49e935a98b4d9656fd0af9e4aa14b1b05a80c3cf8e78", size = 2062173, upload-time = "2025-10-15T15:52:22.724Z" },
     { url = "https://files.pythonhosted.org/packages/b9/d6/d007f6bc55a16a86e64e9bba295b90485011cc6a113d8f56b503b4f34a7d/torchaudio-2.9.0-cp314-cp314t-win_amd64.whl", hash = "sha256:cbf5d6da8fd2ed545c78218b39fd6aacaa4dd5e265c5f85b248a2fac223f0bd6", size = 669272, upload-time = "2025-10-15T15:52:21.696Z" },
-]
-
-[[package]]
-name = "torchdata"
-version = "0.11.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-    { name = "torch" },
-    { name = "urllib3" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/d4/af694ef718aedbe95a72760ab9ff7a6a7a44ace2d7f70c27bfeb67c5c503/torchdata-0.11.0-py3-none-any.whl", hash = "sha256:52b940fbbe0e00fb21cabddf528449d1bec5bfb0d0823b7487b15f951658ee33", size = 61968, upload-time = "2025-02-20T22:26:30.666Z" },
-]
-
-[[package]]
-name = "torchtune"
-version = "0.0.0"
-source = { git = "https://github.com/pytorch/torchtune.git?rev=2344509cf83bd886538fe3e8263e5145d1afb5c2#2344509cf83bd886538fe3e8263e5145d1afb5c2" }
-dependencies = [
-    { name = "blobfile" },
-    { name = "datasets" },
-    { name = "huggingface-hub", extra = ["hf-transfer"] },
-    { name = "kagglehub" },
-    { name = "numpy" },
-    { name = "omegaconf" },
-    { name = "pillow" },
-    { name = "psutil" },
-    { name = "safetensors" },
-    { name = "sentencepiece" },
-    { name = "tiktoken" },
-    { name = "tokenizers" },
-    { name = "torchdata" },
-    { name = "tqdm" },
 ]
 
 [[package]]

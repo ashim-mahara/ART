@@ -1,13 +1,14 @@
 from datetime import datetime
 import json
 import os
-from typing import TYPE_CHECKING, Generic, Iterable, Optional, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Any, Generic, Iterable, Optional, cast, overload
+import warnings
 
 import httpx
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 import polars as pl
 from pydantic import BaseModel
-from typing_extensions import Never
+from typing_extensions import Never, TypeVar
 
 from . import dev
 from .trajectories import Trajectory, TrajectoryGroup
@@ -22,11 +23,12 @@ if TYPE_CHECKING:
 
 
 ModelConfig = TypeVar("ModelConfig", bound=BaseModel | None)
+StateType = TypeVar("StateType", bound=dict[str, Any], default=dict[str, Any])
 
 
 class Model(
     BaseModel,
-    Generic[ModelConfig],
+    Generic[ModelConfig, StateType],
 ):
     """
     A model is an object that can be passed to your `rollout` function, and used
@@ -128,7 +130,7 @@ class Model(
         inference_model_name: str | None = None,
         base_path: str = ".art",
         report_metrics: list[str] | None = None,
-    ) -> "Model[None]": ...
+    ) -> "Model[None, dict[str, Any]]": ...
 
     @overload
     def __new__(
@@ -144,14 +146,14 @@ class Model(
         inference_model_name: str | None = None,
         base_path: str = ".art",
         report_metrics: list[str] | None = None,
-    ) -> "Model[ModelConfig]": ...
+    ) -> "Model[ModelConfig, dict[str, Any]]": ...
 
-    def __new__(
+    def __new__(  # pyright: ignore[reportInconsistentOverload]
         cls,
         *args,
         **kwargs,
-    ) -> "Model[ModelConfig] | Model[None]":
-        return super().__new__(cls)
+    ) -> "Model[ModelConfig, StateType]":
+        return super().__new__(cls)  # type: ignore[return-value]
 
     def safe_model_dump(self, *args, **kwargs) -> dict:
         """
@@ -233,14 +235,23 @@ class Model(
     def get_inference_name(self, step: int | None = None) -> str:
         """Return the name that should be sent to the inference endpoint.
 
-        If `inference_model_name` is provided we use that, otherwise we fall
-        back to the model's own `name`.
-
         Args:
-            step: If provided, returns name for specific checkpoint using
-                  the `name@step` convention. If None, returns name for
-                  latest checkpoint (default, backwards compatible).
+            step: If provided, returns name for specific checkpoint.
+                  If None, returns name for latest/default checkpoint.
+
+        Note:
+            For TrainableModel with LocalBackend, vLLM serves LoRA adapters
+            as `model.name@step`, so this always includes the step suffix.
+            For ServerlessBackend, it uses W&B artifact naming conventions.
         """
+        # If we have a registered backend with _model_inference_name, use it
+        # This ensures proper step handling for each backend type
+        if self._backend is not None and hasattr(
+            self._backend, "_model_inference_name"
+        ):
+            return self._backend._model_inference_name(self, step=step)
+
+        # Fallback for non-registered models or backends without the method
         base_name = self.inference_model_name or self.name
         if step is not None:
             return f"{base_name}@{step}"
@@ -249,6 +260,47 @@ class Model(
     def _get_output_dir(self) -> str:
         """Get the output directory for this model."""
         return f"{self.base_path}/{self.project}/models/{self.name}"
+
+    def write_state(self, state: StateType) -> None:
+        """Write persistent state to the model directory as JSON.
+
+        This state is stored in `state.json` within the model's output directory
+        and can be used to track training progress, dataset position, or any
+        other information that should persist across runs.
+
+        Args:
+            state: A dictionary of JSON-serializable values to persist.
+
+        Example:
+            model.write_state({
+                "step": 5,
+                "dataset_offset": 100,
+                "last_checkpoint_time": "2024-01-15T10:30:00",
+            })
+        """
+        output_dir = self._get_output_dir()
+        os.makedirs(output_dir, exist_ok=True)
+        with open(f"{output_dir}/state.json", "w") as f:
+            json.dump(state, f, indent=2)
+
+    def read_state(self) -> StateType | None:
+        """Read persistent state from the model directory.
+
+        Returns:
+            The state dictionary if it exists, or None if no state has been saved.
+
+        Example:
+            state = model.read_state()
+            if state:
+                start_step = state["step"]
+                dataset_offset = state["dataset_offset"]
+        """
+        output_dir = self._get_output_dir()
+        state_path = f"{output_dir}/state.json"
+        if not os.path.exists(state_path):
+            return None
+        with open(state_path, "r") as f:
+            return json.load(f)
 
     def _get_wandb_run(self) -> Optional["Run"]:
         """Get or create the wandb run for this model."""
@@ -313,16 +365,40 @@ class Model(
 
     async def log(
         self,
-        trajectories: Iterable[Trajectory | BaseException] | Iterable[TrajectoryGroup],
+        trajectories: (
+            Iterable[Trajectory | BaseException] | Iterable[TrajectoryGroup] | None
+        ) = None,
         split: str = "val",
+        *,
+        metrics: dict[str, float] | None = None,
+        step: int | None = None,
     ) -> None:
         """
-        Log the model's performance for an evaluation batch of trajectories or trajectory groups.
+        Log trajectories and/or metrics.
+
+        Can be used in two ways:
+        1. Log trajectories: `await model.log(trajectory_groups, split="train")`
+        2. Log raw metrics: `await model.log(metrics={"loss": 0.5}, step=1)`
+        3. Both: `await model.log(trajectory_groups, metrics=extra_metrics)`
 
         Args:
-            trajectories: A batch of trajectories or trajectory groups.
+            trajectories: A batch of trajectories or trajectory groups. Optional if
+                logging only metrics.
             split: The evaluation's split. Defaults to "val".
+            metrics: Optional dict of metrics to log directly (e.g., training metrics
+                from backend.train()).
+            step: Optional step number for metrics. If not provided, uses current step.
         """
+        # Determine the step to use
+        if step is None:
+            step = await self.get_step() if self.trainable else 0
+
+        # If only metrics provided (no trajectories), just log them and return
+        if trajectories is None:
+            if metrics is not None:
+                self._log_metrics(metrics, split, step)
+            return
+
         # Convert to list[TrajectoryGroup]
         if any(isinstance(t, Trajectory) for t in trajectories) or any(
             isinstance(t, BaseException) for t in trajectories
@@ -334,9 +410,6 @@ class Model(
             ]
         else:
             trajectory_groups = cast(list[TrajectoryGroup], list(trajectories))
-
-        # Get the current step from checkpoint
-        step = await self.get_step() if self.trainable else 0
 
         # Ensure output directories exist
         output_dir = self._get_output_dir()
@@ -377,6 +450,10 @@ class Model(
         # Calculate average standard deviation of rewards within groups
         averages["reward_std_dev"] = calculate_step_std_dev(trajectory_groups)
 
+        # Merge in any additional metrics passed directly
+        if metrics is not None:
+            averages.update(metrics)
+
         # 3. Log metrics (writes to history.jsonl and wandb)
         self._log_metrics(averages, split, step)
 
@@ -394,7 +471,7 @@ class Model(
 # ---------------------------------------------------------------------------
 
 
-class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
+class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateType]):
     base_model: str
     # Override discriminator field for FastAPI serialization
     trainable: bool = True
@@ -445,7 +522,7 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         base_path: str = ".art",
         report_metrics: list[str] | None = None,
         _internal_config: dev.InternalModelConfig | None = None,
-    ) -> "TrainableModel[None]": ...
+    ) -> "TrainableModel[None, dict[str, Any]]": ...
 
     @overload
     def __new__(
@@ -460,13 +537,13 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         base_path: str = ".art",
         report_metrics: list[str] | None = None,
         _internal_config: dev.InternalModelConfig | None = None,
-    ) -> "TrainableModel[ModelConfig]": ...
+    ) -> "TrainableModel[ModelConfig, dict[str, Any]]": ...
 
-    def __new__(
+    def __new__(  # pyright: ignore[reportInconsistentOverload]
         cls,
         *args,
         **kwargs,
-    ) -> "TrainableModel[ModelConfig] | TrainableModel[None]":
+    ) -> "TrainableModel[ModelConfig, StateType]":
         return super().__new__(cls)  # type: ignore
 
     def model_dump(self, *args, **kwargs) -> dict:
@@ -546,12 +623,31 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         """
         Reinforce fine-tune the model with a batch of trajectory groups.
 
+        .. deprecated::
+            Use ``backend.train(model, trajectory_groups, ...)`` instead.
+            This method will be removed in a future version.
+
         Args:
             trajectory_groups: A batch of trajectory groups.
             config: Fine-tuning specific configuration
             _config: Additional configuration that is subject to change and
                 not yet part of the public API. Use at your own risk.
         """
+        warnings.warn(
+            "model.train() is deprecated. Use backend.train(model, ...) instead.\n\n"
+            "Migration guide:\n"
+            "  # Before (deprecated):\n"
+            "  await model.train(trajectory_groups, config=TrainConfig(learning_rate=5e-6))\n\n"
+            "  # After (recommended):\n"
+            "  result = await backend.train(model, trajectory_groups, learning_rate=5e-6)\n"
+            "  await model.log(trajectory_groups, metrics=result.metrics, step=result.step, split='train')\n\n"
+            "Key differences:\n"
+            "  - backend.train() does NOT automatically log trajectories or metrics\n"
+            "  - backend.train() returns a TrainResult with step, metrics, and checkpoint info\n"
+            "  - Each backend has its own type-checked parameters (no more generic config objects)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         groups_list = list(trajectory_groups)
         _config = _config or {}
 
