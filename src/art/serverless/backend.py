@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING, AsyncIterator, Iterable, Literal
+from typing import TYPE_CHECKING, Any, AsyncIterator, Iterable, Literal
 import warnings
 
 from openai._types import NOT_GIVEN
@@ -310,12 +310,150 @@ class ServerlessBackend(Backend):
         dev_config: dev.SFTConfig,
         verbose: bool = False,
     ) -> AsyncIterator[dict[str, float]]:
-        raise NotImplementedError(
-            "SFT training is not yet implemented for ServerlessBackend. "
-            "Please use the Backend HTTP API or implement this method."
+        """Train the model using supervised fine-tuning.
+
+        For ServerlessBackend, this serializes trajectories to a JSONL file,
+        uploads it to W&B artifacts, and calls the SFT training API.
+
+        Args:
+            model: The trainable model to fine-tune.
+            trajectories: Iterable of Trajectory objects.
+            config: SFT configuration with batch_size and learning rates.
+            dev_config: Developer configuration.
+            verbose: Whether to print detailed logs.
+
+        Yields:
+            Dictionary containing training metrics for each batch.
+        """
+        import json
+        import tempfile
+        import uuid
+
+        import wandb
+
+        assert model.id is not None, "Model ID is required"
+
+        # Convert trajectories to list
+        trajectory_list = list(trajectories)
+
+        if len(trajectory_list) == 0:
+            if verbose:
+                print("No trajectories to train on")
+            return
+
+        # Get the user's default entity from W&B if not set
+        if model.entity is None:
+            api = wandb.Api(api_key=self._client.api_key)
+            model.entity = api.default_entity
+
+        # Generate unique artifact name to avoid race conditions in distributed systems
+        artifact_id = uuid.uuid4().hex[:12]
+        artifact_name = f"{model.name}-sft-data-{artifact_id}"
+
+        if verbose:
+            print(f"Serializing {len(trajectory_list)} trajectories...")
+
+        # Serialize trajectories to a temporary JSONL file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        ) as tmp_file:
+            for trajectory in trajectory_list:
+                # Convert trajectory to the expected JSONL format
+                line: dict[str, Any] = {
+                    "messages": trajectory.messages(),
+                }
+                if trajectory.tools:
+                    line["tools"] = trajectory.tools
+                tmp_file.write(json.dumps(line) + "\n")
+            tmp_file_path = tmp_file.name
+
+        try:
+            if verbose:
+                print(f"Uploading training data to W&B artifacts...")
+
+            # Upload the file to W&B as a dataset artifact
+            run = wandb.init(
+                name=model.name + " (sft-data)",
+                entity=model.entity,
+                project=model.project,
+                settings=wandb.Settings(api_key=self._client.api_key),
+            )
+            try:
+                artifact = wandb.Artifact(
+                    artifact_name,
+                    type="dataset",
+                    metadata={"format": "jsonl", "num_trajectories": len(trajectory_list)},
+                )
+                artifact.add_file(tmp_file_path, name="train.jsonl")
+                artifact = run.log_artifact(artifact)
+                try:
+                    artifact = artifact.wait()
+                except ValueError as e:
+                    if "Unable to fetch artifact with id" in str(e):
+                        if verbose:
+                            print(f"Warning: {e}")
+                    else:
+                        raise e
+            finally:
+                run.finish()
+        finally:
+            # Clean up temporary file
+            import os
+
+            os.unlink(tmp_file_path)
+
+        # Construct the artifact URL with unique name (v0 is the first version)
+        training_folder_url = f"wandb-artifact:///{model.entity}/{model.project}/{artifact_name}:v0"
+
+        if verbose:
+            print(f"Training data uploaded. Artifact URL: {training_folder_url}")
+            print("Starting SFT training job...")
+
+        # Create SFT training job
+        from .client import SFTTrainingConfig
+
+        sft_config: SFTTrainingConfig = {}
+        if config.batch_size != "auto":
+            sft_config["batch_size"] = config.batch_size
+        sft_config["learning_rate"] = config.learning_rate
+
+        sft_training_job = await self._client.sft_training_jobs.create(
+            model_id=model.id,
+            training_folder_url=training_folder_url,
+            config=sft_config,
         )
-        # This yield is unreachable but makes this an async generator
-        yield  # type: ignore
+
+        # Poll for events
+        after: str | None = None
+        num_batches: int | None = None
+        pbar: tqdm.tqdm | None = None
+        while True:
+            await asyncio.sleep(1)
+            async for event in self._client.sft_training_jobs.events.list(
+                training_job_id=sft_training_job.id, after=after or NOT_GIVEN
+            ):
+                if event.type == "gradient_step":
+                    assert pbar is not None and num_batches is not None
+                    pbar.update(1)
+                    pbar.set_postfix(event.data)
+                    yield {**event.data, "num_gradient_steps": num_batches}
+                elif event.type == "training_started":
+                    num_batches = event.data.get("num_batches", 0)
+                    if pbar is None:
+                        pbar = tqdm.tqdm(total=num_batches, desc="sft train")
+                    continue
+                elif event.type == "training_ended":
+                    if pbar is not None:
+                        pbar.close()
+                    return
+                elif event.type == "training_failed":
+                    if pbar is not None:
+                        pbar.close()
+                    error_message = event.data.get(
+                        "error_message", "SFT training failed with an unknown error"
+                    )
+                    raise RuntimeError(f"SFT training job failed: {error_message}")
+                after = event.id
 
     # ------------------------------------------------------------------
     # Experimental support for S3 and checkpoints

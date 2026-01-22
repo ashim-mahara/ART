@@ -65,7 +65,16 @@ class ExperimentalTrainingConfig(TypedDict, total=False):
     scale_rewards: bool | None
 
 
+class SFTTrainingConfig(TypedDict, total=False):
+    batch_size: int | None
+    learning_rate: float | None
+
+
 class TrainingJob(BaseModel):
+    id: str
+
+
+class SFTTrainingJob(BaseModel):
     id: str
 
 
@@ -220,6 +229,29 @@ class TrainingJobEvents(AsyncAPIResource):
         )
 
 
+class SFTTrainingJobs(AsyncAPIResource):
+    async def create(
+        self,
+        *,
+        model_id: str,
+        training_folder_url: str,
+        config: SFTTrainingConfig | None = None,
+    ) -> SFTTrainingJob:
+        return await self._post(
+            "/preview/sft-training-jobs",
+            cast_to=SFTTrainingJob,
+            body={
+                "model_id": model_id,
+                "training_folder_url": training_folder_url,
+                "config": config,
+            },
+        )
+
+    @cached_property
+    def events(self) -> "TrainingJobEvents":
+        return TrainingJobEvents(cast(AsyncOpenAI, self._client))
+
+
 class Client(AsyncAPIClient):
     api_key: str
 
@@ -263,6 +295,10 @@ class Client(AsyncAPIClient):
     @cached_property
     def training_jobs(self) -> TrainingJobs:
         return TrainingJobs(cast(AsyncOpenAI, self))
+
+    @cached_property
+    def sft_training_jobs(self) -> SFTTrainingJobs:
+        return SFTTrainingJobs(cast(AsyncOpenAI, self))
 
     ############################
     # AsyncOpenAI overrides #
