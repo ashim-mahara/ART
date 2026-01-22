@@ -315,7 +315,6 @@ class Model(
         self,
         trajectories: Iterable[Trajectory | BaseException] | Iterable[TrajectoryGroup],
         split: str = "val",
-        step: int | None = None,
     ) -> None:
         """
         Log the model's performance for an evaluation batch of trajectories or trajectory groups.
@@ -323,7 +322,6 @@ class Model(
         Args:
             trajectories: A batch of trajectories or trajectory groups.
             split: The evaluation's split. Defaults to "val".
-            step: The step to log at. If None, uses the current checkpoint step.
         """
         # Convert to list[TrajectoryGroup]
         if any(isinstance(t, Trajectory) for t in trajectories) or any(
@@ -337,9 +335,8 @@ class Model(
         else:
             trajectory_groups = cast(list[TrajectoryGroup], list(trajectories))
 
-        # Get the current step if not provided
-        if step is None:
-            step = await self.get_step() if self.trainable else 0
+        # Get the current step from checkpoint
+        step = await self.get_step() if self.trainable else 0
 
         # Ensure output directories exist
         output_dir = self._get_output_dir()
@@ -558,24 +555,26 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         groups_list = list(trajectory_groups)
         _config = _config or {}
 
-        # 1. Train (backend saves checkpoint)
+        # 1. Log trajectories first (frontend handles this now)
+        await self.log(groups_list, split="train")
+
+        # 2. Train (backend no longer logs internally)
         training_metrics: list[dict[str, float]] = []
         async for metrics in self.backend()._train_model(
             self, groups_list, config, _config, verbose
         ):
             training_metrics.append(metrics)
 
-        # 2. Get step from checkpoint (backend already saved it)
-        step = await self.get_step()
-
-        # 3. Log trajectories and training metrics at the same step
-        await self.log(groups_list, split="train", step=step)
+        # 3. Log training metrics (loss, gradient norms, etc.)
         if training_metrics:
             avg_metrics = {
                 k: sum(d.get(k, 0) for d in training_metrics)
                 / sum(1 for d in training_metrics if k in d)
                 for k in {k for d in training_metrics for k in d}
+                if k != "num_gradient_steps"
             }
+            # Get the current step after training
+            step = await self.get_step()
             self._log_metrics(avg_metrics, "train", step)
 
     async def train_sft(

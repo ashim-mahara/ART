@@ -453,16 +453,6 @@ class LocalBackend(Backend):
         pbar.close()
         # Note: Metrics logging is now handled by the frontend (Model.train())
         if verbose:
-            print("Logging metrics...")
-        data = {
-            k: sum(d.get(k, 0) for d in results) / sum(1 for d in results if k in d)
-            for k in {k for d in results for k in d}
-        }
-        # Add group counting metrics
-        data["num_groups_submitted"] = num_groups_submitted
-        data["num_groups_trainable"] = num_groups_trainable
-        # Note: Metrics logging is handled by the frontend (Model.train())
-        if verbose:
             print("_train_model complete")
 
     async def _train_sft(
