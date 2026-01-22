@@ -14,10 +14,6 @@ from fastapi import FastAPI, Request
 from openai import AsyncOpenAI
 from openai.types.chat.chat_completion import ChatCompletion, Choice, ChoiceLogprobs
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
-from openai.types.chat.chat_completion_message_function_tool_call import (
-    ChatCompletionMessageFunctionToolCall,
-    Function,
-)
 from openai.types.chat.chat_completion_token_logprob import ChatCompletionTokenLogprob
 from openai.types.chat.completion_create_params import CompletionCreateParams
 from openai.types.completion_usage import CompletionUsage
@@ -424,20 +420,30 @@ class TinkerService:
                     add_generation_prompt=True,
                 )
             )
-            sample_response = await sampler_client.sample_async(
-                prompt=prompt,
-                num_samples=body.get("n") or 1,
-                sampling_params=tinker.SamplingParams(
-                    max_tokens=body.get("max_completion_tokens")
-                    or body.get("max_tokens"),
-                    seed=body.get("seed"),
-                    temperature=t
-                    if (t := body.get("temperature")) is not None
-                    else 1.0,
-                    top_k=body.get("top_k") or -1,
-                    top_p=body.get("top_p") or 1.0,
-                ),
-            )
+            try:
+                sample_response = await sampler_client.sample_async(
+                    prompt=prompt,
+                    num_samples=body.get("n") or 1,
+                    sampling_params=tinker.SamplingParams(
+                        max_tokens=body.get("max_completion_tokens")
+                        or body.get("max_tokens"),
+                        seed=body.get("seed"),
+                        temperature=t
+                        if (t := body.get("temperature")) is not None
+                        else 1.0,
+                        top_k=body.get("top_k") or -1,
+                        top_p=body.get("top_p") or 1.0,
+                    ),
+                )
+            except Exception as e:
+                max_tokens = body.get("max_completion_tokens") or body.get("max_tokens")
+                print(
+                    "[tinker-service] sample_async error "
+                    f"model={model_name} step={step} "
+                    f"prompt_tokens={prompt.length} n={body.get('n') or 1} "
+                    f"max_tokens={max_tokens} error={e}"
+                )
+                raise
             choices: list[Choice] = []
             for i, sequence in enumerate(sample_response.sequences):
                 assert sequence.logprobs is not None, "Logprobs are required"
@@ -445,26 +451,30 @@ class TinkerService:
                     "Tokens and logprobs must have the same length"
                 )
                 message, _ = state.renderer.parse_response(sequence.tokens)
+                # Convert to OpenAI format - handles list content, tool_calls, reasoning_content
+                openai_message = state.renderer.to_openai_message(message)
+
+                # Ensure tool_calls are valid for OpenAI schema (id must be a string)
+                tool_calls = openai_message.get("tool_calls")
+                if tool_calls:
+                    sanitized_tool_calls = []
+                    for idx, tool_call in enumerate(tool_calls):
+                        if not isinstance(tool_call, dict):
+                            continue
+                        tool_call = dict(tool_call)
+                        if not tool_call.get("id"):
+                            tool_call["id"] = f"call_{idx}"
+                        sanitized_tool_calls.append(tool_call)
+                    if sanitized_tool_calls:
+                        openai_message["tool_calls"] = sanitized_tool_calls
+                    else:
+                        openai_message.pop("tool_calls", None)
+
                 choices.append(
                     Choice(
                         finish_reason=sequence.stop_reason,
                         index=i,
-                        message=ChatCompletionMessage(
-                            content=message["content"],
-                            role="assistant",
-                            tool_calls=[
-                                ChatCompletionMessageFunctionToolCall(
-                                    type="function",
-                                    id=tool_call.id or "",
-                                    function=Function(
-                                        name=tool_call.function.name,
-                                        arguments=tool_call.function.arguments,
-                                    ),
-                                )
-                                for tool_call in message.get("tool_calls", [])
-                            ]
-                            or None,
-                        ),
+                        message=ChatCompletionMessage(**openai_message),
                         logprobs=ChoiceLogprobs(
                             content=[
                                 ChatCompletionTokenLogprob(
