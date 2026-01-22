@@ -10,7 +10,7 @@ from art.utils.sft import train_sft_from_file
 async def main():
     backend = LocalBackend()
     model = art.TrainableModel(
-        name="run-5",
+        name="run-001",
         project="sft-from-file",
         base_model="Qwen/Qwen2.5-7B-Instruct",
     )
@@ -20,7 +20,6 @@ async def main():
         model=model,
         file_path="dev/sft/dataset.jsonl",
         epochs=1,
-        chunk_size=10,
         peak_lr=2e-4,
     )
 

@@ -36,19 +36,21 @@ async def main():
         f"Teacher response ({len(teacher_response)} chars):\n{teacher_response[:500]}..."
     )
 
-    # Create trajectory from teacher completion
-    trajectory = art.Trajectory(
-        messages_and_choices=[
-            {"role": "user", "content": PROMPT},
-            {"role": "assistant", "content": teacher_response},
-        ],
-        reward=0.0,
-    )
+    # Create trajectories from teacher completion
+    trajectories = [
+        art.Trajectory(
+            messages_and_choices=[
+                {"role": "user", "content": PROMPT},
+                {"role": "assistant", "content": teacher_response},
+            ],
+            reward=0.0,
+        )
+    ]
 
     # Train student model
     backend = LocalBackend()
     student = art.TrainableModel(
-        name="distillation-demo-11",
+        name="sft-distillation-001",
         project="sft-distillation",
         base_model=STUDENT_BASE_MODEL,
     )
@@ -56,7 +58,7 @@ async def main():
 
     print(f"Training student model ({STUDENT_BASE_MODEL})...")
     await student.train_sft(
-        [trajectory],
+        trajectories,
         config=art.SFTConfig(learning_rate=2e-4),
         verbose=True,
     )
