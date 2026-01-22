@@ -143,4 +143,13 @@ def loss_fn(
 
 
 def shift_tensor(tensor: torch.Tensor, pad: int | float | bool) -> torch.Tensor:
-    return torch.nn.functional.pad(tensor[:, 1:], (0, 1), value=pad)
+    """Shift tensor left by 1 position, padding the right with `pad`.
+    
+    Handles both 1D tensors (sequence) and 2D tensors (batch x sequence).
+    """
+    if tensor.ndim == 1:
+        # 1D tensor: just shift and pad
+        return torch.nn.functional.pad(tensor[1:], (0, 1), value=pad)
+    else:
+        # 2D tensor: shift along sequence dimension
+        return torch.nn.functional.pad(tensor[:, 1:], (0, 1), value=pad)

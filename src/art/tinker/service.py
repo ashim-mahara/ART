@@ -36,17 +36,19 @@ from ..preprocessing.pack import (
     packed_tensors_from_dir,
 )
 
-# Patch Tinker's Qwen3InstructRenderer which mistakenly expects "args" instead of "arguments" in tool calls.
-_parse_tool_call = renderers.Qwen3InstructRenderer._parse_tool_call
+# Patch Tinker's Qwen3InstructRenderer which mistakenly expects "args" instead of
+# "arguments" in tool calls. Guard against older renderers that lack this class.
+if hasattr(renderers, "Qwen3InstructRenderer"):
+    _parse_tool_call = renderers.Qwen3InstructRenderer._parse_tool_call
 
+    def _patched_parse_tool_call(
+        self, tool_call_str: str
+    ) -> list[renderers.ToolCall] | None:
+        return _parse_tool_call(
+            self, tool_call_str.replace('"arguments": ', '"args": ')
+        )
 
-def _patched_parse_tool_call(
-    self, tool_call_str: str
-) -> list[renderers.ToolCall] | None:
-    return _parse_tool_call(self, tool_call_str.replace('"arguments": ', '"args": '))
-
-
-renderers.Qwen3InstructRenderer._parse_tool_call = _patched_parse_tool_call
+    renderers.Qwen3InstructRenderer._parse_tool_call = _patched_parse_tool_call
 
 
 @contextmanager
@@ -142,6 +144,12 @@ class TinkerService:
             if tinker_loss_fn:
                 # Use Tinker's optimized built-in loss function
                 # Build datums with logprobs and advantages for the built-in loss
+                # Note: logprobs may contain NaN for padded positions; replace with 0.0
+                # for JSON serialization (Tinker's API requires valid floats)
+                shifted_logprobs = torch.nan_to_num(
+                    shift_tensor(packed_tensors["logprobs"][i], 0.0), nan=0.0
+                )
+                shifted_advantages = shift_tensor(packed_tensors["advantages"][i], 0.0)
                 datums = [
                     tinker.Datum(
                         loss_fn_inputs={
@@ -149,10 +157,10 @@ class TinkerService:
                                 shifted_tokens[i][mask]
                             ),
                             "logprobs": tinker.TensorData.from_torch(
-                                shift_tensor(packed_tensors["logprobs"][i], 0.0)[mask]
+                                shifted_logprobs[mask]
                             ),
                             "advantages": tinker.TensorData.from_torch(
-                                shift_tensor(packed_tensors["advantages"][i], 0.0)[mask]
+                                shifted_advantages[mask]
                             ),
                         },
                         model_input=tinker.ModelInput.from_ints(
