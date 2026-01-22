@@ -44,7 +44,6 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
     "Qwen/Qwen2.5-14B-Instruct": ModelConfig(
         instruction_part="<|im_start|>user\n",
         response_part="<|im_start|>assistant\n",
-        sft_defaults=SFTDefaults(batch_size=2, learning_rate=1e-4),
     ),
     "Qwen/Qwen2.5-32B-Instruct": ModelConfig(
         instruction_part="<|im_start|>user\n",
@@ -70,12 +69,10 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
     "OpenPipe/Qwen3-14B-Instruct": ModelConfig(
         instruction_part="<|im_start|>user\n",
         response_part="<|im_start|>assistant\n<think>\n\n</think>\n\n",
-        sft_defaults=SFTDefaults(batch_size=2, learning_rate=1e-4),
     ),
     "Qwen/Qwen3-30B-A3B-Instruct-2507": ModelConfig(
         instruction_part="<|im_start|>user\n",
         response_part="<|im_start|>assistant\n",
-        sft_defaults=SFTDefaults(batch_size=2, learning_rate=1e-4),
     ),
     # Llama 3 models
     "meta-llama/Llama-3.1-8B-Instruct": ModelConfig(

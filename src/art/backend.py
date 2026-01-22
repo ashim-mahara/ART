@@ -151,7 +151,7 @@ class Backend:
 
     async def _train_sft(
         self,
-        model: "TrainableModel",
+        model: AnyTrainableModel,
         trajectories: Iterable[Trajectory],
         config: SFTConfig,
         dev_config: dev.SFTConfig,

@@ -262,10 +262,12 @@ def test_create_sft_dataset_iterator_epoch_shuffling():
 
     # Different epochs should have different orderings (due to shuffle)
     epoch0_contents = [
-        t.messages_and_choices[0]["content"] for t in chunks[0].trajectories
+        t.messages_and_choices[0]["content"]  # type: ignore[index,typeddict-item]
+        for t in chunks[0].trajectories
     ]
     epoch1_contents = [
-        t.messages_and_choices[0]["content"] for t in chunks[1].trajectories
+        t.messages_and_choices[0]["content"]  # type: ignore[index,typeddict-item]
+        for t in chunks[1].trajectories
     ]
     assert epoch0_contents != epoch1_contents
 

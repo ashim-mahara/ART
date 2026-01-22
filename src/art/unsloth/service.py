@@ -322,7 +322,7 @@ class UnslothService:
         self._latest_step = step
         await llm.resume_generation()
 
-    def _get_optimizer(self) -> torch.optim.AdamW:
+    def _get_optimizer(self) -> Any:
         """Get or create the shared optimizer.
 
         GRPOTrainer creates its optimizer lazily, so it may be None if we

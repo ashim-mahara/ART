@@ -32,7 +32,7 @@ from art.utils.s3 import (
 from mp_actors import close_proxy, move_to_child_process
 
 from .. import dev
-from ..backend import Backend
+from ..backend import AnyTrainableModel, Backend
 from ..model import Model, TrainableModel
 from ..preprocessing.pack import (
     PackedTensors,
@@ -615,7 +615,7 @@ class LocalBackend(Backend):
 
     async def _train_sft(
         self,
-        model: TrainableModel,
+        model: AnyTrainableModel,
         trajectories: Iterable[Trajectory],
         config: SFTConfig,
         dev_config: dev.SFTConfig,
