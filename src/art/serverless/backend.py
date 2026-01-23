@@ -403,10 +403,10 @@ class ServerlessBackend(Backend):
             os.unlink(tmp_file_path)
 
         # Construct the artifact URL with unique name (v0 is the first version)
-        training_folder_url = f"wandb-artifact:///{model.entity}/{model.project}/{artifact_name}:v0"
+        training_data_url = f"wandb-artifact:///{model.entity}/{model.project}/{artifact_name}:v0"
 
         if verbose:
-            print(f"Training data uploaded. Artifact URL: {training_folder_url}")
+            print(f"Training data uploaded. Artifact URL: {training_data_url}")
             print("Starting SFT training job...")
 
         # Create SFT training job
@@ -419,7 +419,7 @@ class ServerlessBackend(Backend):
 
         sft_training_job = await self._client.sft_training_jobs.create(
             model_id=model.id,
-            training_folder_url=training_folder_url,
+            training_data_url=training_data_url,
             config=sft_config,
         )
 

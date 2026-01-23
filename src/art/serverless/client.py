@@ -234,7 +234,7 @@ class SFTTrainingJobs(AsyncAPIResource):
         self,
         *,
         model_id: str,
-        training_folder_url: str,
+        training_data_url: str,
         config: SFTTrainingConfig | None = None,
     ) -> SFTTrainingJob:
         return await self._post(
@@ -242,7 +242,7 @@ class SFTTrainingJobs(AsyncAPIResource):
             cast_to=SFTTrainingJob,
             body={
                 "model_id": model_id,
-                "training_folder_url": training_folder_url,
+                "training_data_url": training_data_url,
                 "config": config,
             },
         )
