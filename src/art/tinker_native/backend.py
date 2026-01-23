@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import os
 import re
 import time
-from typing import Any, Awaitable, Iterable, Literal, TypeVar, cast
 import uuid
+from typing import Any, Awaitable, Iterable, Literal, TypeVar, cast
 
 from fastapi import FastAPI, HTTPException
 from openai import AsyncOpenAI
@@ -75,7 +75,6 @@ class TinkerNativeModelConfig:
 class TinkerNativeBackend(Backend):
     _tinker_train_log_env = "ART_TINKER_TRAIN_LOG"
     _tinker_sample_log_env = "ART_TINKER_SAMPLE_LOG"
-
     def __init__(
         self,
         *,
@@ -138,7 +137,6 @@ class TinkerNativeBackend(Backend):
             env_name=self._tinker_sample_log_env,
             prefix="sample",
         )
-
     async def close(self) -> None:
         for state in self._model_state.values():
             if state.server_task is not None:
@@ -369,25 +367,26 @@ class TinkerNativeBackend(Backend):
                 parsed_message = parse_completion_to_openai_message(
                     list(sequence.tokens), state.renderer
                 )
+                content = parsed_message.get("content")
                 tool_calls: list[ChatCompletionMessageToolCallUnion] | None = None
                 if parsed_message.get("tool_calls"):
                     tool_calls = [
                         ChatCompletionMessageFunctionToolCall(
                             type="function",
-                            id=tool_call["id"],
+                            id=tool_call.get("id") or f"call_{idx}",
                             function=Function(
                                 name=tool_call["function"]["name"],
                                 arguments=tool_call["function"]["arguments"],
                             ),
                         )
-                        for tool_call in parsed_message["tool_calls"]
+                        for idx, tool_call in enumerate(parsed_message["tool_calls"])
                     ]
                 choices.append(
                     Choice(
                         finish_reason=sequence.stop_reason,
                         index=i,
                         message=ChatCompletionMessage(
-                            content=parsed_message.get("content", ""),
+                            content=content or None,
                             role="assistant",
                             tool_calls=tool_calls,
                         ),
@@ -756,7 +755,6 @@ class TinkerNativeBackend(Backend):
         return await self._tinker_train_call(
             "save_state_result_async", state_future.result_async()
         )
-
     def _persist_model_state(self, model: TrainableModel, state: ModelState) -> None:
         model.merge_state(
             {

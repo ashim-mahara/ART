@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import re
 from typing import Any, Iterable, cast
 
 from openai.types.chat.chat_completion import Choice
@@ -13,53 +11,11 @@ from ..trajectories import History, Trajectory, TrajectoryGroup, get_messages
 from ..types import MessagesAndChoices
 
 
-def _create_conversation_prefix_with_tools_fallback(
-    tools: list[dict[str, Any]], system_prompt: str = ""
-) -> list[dict[str, Any]]:
-    """Fallback implementation for create_conversation_prefix_with_tools.
-
-    Used when the installed tinker_cookbook version doesn't have this method.
-    Implements the Qwen3 tool format.
-    """
-    tools_text = ""
-    if tools:
-        # Each tool is wrapped in {"type": "function", "function": {...}} per OpenAI format
-        tool_lines = "\n".join(
-            json.dumps({"type": "function", "function": tool}, separators=(", ", ": "))
-            for tool in tools
-        )
-        tools_text = f"""# Tools
-
-You may call one or more functions to assist with the user query.
-
-You are provided with function signatures within <tools></tools> XML tags:
-<tools>
-{tool_lines}
-</tools>
-
-For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
-<tool_call>
-{{"name": <function-name>, "arguments": <args-json-object>}}
-</tool_call>"""
-
-    # Add separator between system prompt and tools if system prompt exists
-    if system_prompt:
-        content = system_prompt + "\n\n" + tools_text
-    else:
-        content = tools_text
-
-    return [{"role": "system", "content": content}]
-
-
 def create_conversation_prefix_with_tools(
     renderer: Any, tools: list[dict[str, Any]], system_prompt: str = ""
 ) -> list[dict[str, Any]]:
-    """Create conversation prefix with tools, using renderer method or fallback."""
-    if hasattr(renderer, "create_conversation_prefix_with_tools"):
-        return renderer.create_conversation_prefix_with_tools(tools, system_prompt)
-    return _create_conversation_prefix_with_tools_fallback(tools, system_prompt)
-
-
+    """Create conversation prefix with tools using the renderer implementation."""
+    return renderer.create_conversation_prefix_with_tools(tools, system_prompt)
 def compute_advantages(
     rewards: list[float], normalize_advantages: bool = True
 ) -> list[float]:
@@ -146,75 +102,12 @@ def convert_openai_messages_to_renderer_format(
     return converted
 
 
-def _extract_gpt_oss_tool_calls(content: str) -> tuple[str, list[dict[str, Any]]]:
-    tool_calls = []
-    cleaned_content = content
-
-    pattern = r"<assistant to=functions\.(\w+)>(\{[^}]*\})(?:<\|call\|>)?"
-
-    matches = list(re.finditer(pattern, content))
-    for i, match in enumerate(matches):
-        func_name = match.group(1)
-        args_json = match.group(2)
-
-        tool_calls.append(
-            {
-                "id": f"call_{i}",
-                "type": "function",
-                "function": {
-                    "name": func_name,
-                    "arguments": args_json,
-                },
-            }
-        )
-
-        cleaned_content = cleaned_content.replace(match.group(0), "").strip()
-
-    return cleaned_content, tool_calls
-
-
 def parse_completion_to_openai_message(
     completion_tokens: list[int],
     renderer: Any,
 ) -> dict[str, Any]:
     message, _ = renderer.parse_response(completion_tokens)
-
-    result: dict[str, Any] = {"role": "assistant"}
-
-    content = message.get("content", "")
-    if isinstance(content, str):
-        result["content"] = content
-    else:
-        text_parts = []
-        for part in content:
-            if part["type"] == "text":
-                text_parts.append(part["text"])
-            elif part["type"] == "thinking":
-                text_parts.append(part["thinking"])
-        result["content"] = "".join(text_parts)
-
-    if "tool_calls" in message and message["tool_calls"]:
-        result["tool_calls"] = [
-            {
-                "id": tool_call.id or f"call_{i}",
-                "type": "function",
-                "function": {
-                    "name": tool_call.function.name,
-                    "arguments": tool_call.function.arguments,
-                },
-            }
-            for i, tool_call in enumerate(message["tool_calls"])
-        ]
-    else:
-        if result.get("content") and "<assistant to=functions." in result["content"]:
-            cleaned_content, extracted_tool_calls = _extract_gpt_oss_tool_calls(
-                result["content"]
-            )
-            if extracted_tool_calls:
-                result["content"] = cleaned_content
-                result["tool_calls"] = extracted_tool_calls
-
-    return result
+    return renderer.to_openai_message(message)
 
 
 def _trajectory_has_choice(trajectory: Trajectory) -> bool:
@@ -226,8 +119,6 @@ def _trajectory_has_choice(trajectory: Trajectory) -> bool:
             if isinstance(message_or_choice, Choice):
                 return True
     return False
-
-
 def trajectory_groups_to_datums(
     trajectory_groups: Iterable[TrajectoryGroup],
     renderer: Any,
