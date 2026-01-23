@@ -248,7 +248,7 @@ class AsyncService:
         start_time = time.time()
         while True:
             elapsed = time.time() - start_time
-            if elapsed > 180:
+            if elapsed > 600:
                 raise TimeoutError(
                     f"vLLM server at {base_url} did not become ready within 180s."
                 )
