@@ -53,6 +53,9 @@ class ServerlessBackend(Backend):
         )
         model.id = client_model.id
         model.entity = client_model.entity
+        # Store run_id for wandb run management
+        if hasattr(client_model, 'run_id'):
+            model.run_id = client_model.run_id
 
     async def delete(
         self,
@@ -372,10 +375,14 @@ class ServerlessBackend(Backend):
                 print(f"Uploading training data to W&B artifacts...")
 
             # Upload the file to W&B as a dataset artifact
+            # Use the model's canonical run_id from database, or fall back to model name
+            run_id_to_use = getattr(model, 'run_id', model.name)
             run = wandb.init(
-                name=model.name + " (sft-data)",
+                name=model.name,
+                id=run_id_to_use,  # Use stored run_id to match the canonical wandb run
                 entity=model.entity,
                 project=model.project,
+                resume="allow",  # Resume if this run already exists
                 settings=wandb.Settings(api_key=self._client.api_key),
             )
             try:
@@ -395,6 +402,8 @@ class ServerlessBackend(Backend):
                     else:
                         raise e
             finally:
+                # Finish the run so the workflow can resume it later
+                # The workflow uses wandb_run with resume="must" to continue this run
                 run.finish()
         finally:
             # Clean up temporary file
@@ -403,10 +412,10 @@ class ServerlessBackend(Backend):
             os.unlink(tmp_file_path)
 
         # Construct the artifact URL with unique name (v0 is the first version)
-        training_data_url = f"wandb-artifact:///{model.entity}/{model.project}/{artifact_name}:v0"
+        training_folder_url = f"wandb-artifact:///{model.entity}/{model.project}/{artifact_name}:v0"
 
         if verbose:
-            print(f"Training data uploaded. Artifact URL: {training_data_url}")
+            print(f"Training data uploaded. Artifact URL: {training_folder_url}")
             print("Starting SFT training job...")
 
         # Create SFT training job
@@ -419,7 +428,7 @@ class ServerlessBackend(Backend):
 
         sft_training_job = await self._client.sft_training_jobs.create(
             model_id=model.id,
-            training_data_url=training_data_url,
+            training_folder_url=training_folder_url,
             config=sft_config,
         )
 
@@ -438,9 +447,9 @@ class ServerlessBackend(Backend):
                     pbar.set_postfix(event.data)
                     yield {**event.data, "num_gradient_steps": num_batches}
                 elif event.type == "training_started":
-                    num_batches = event.data.get("num_batches", 0)
+                    num_batches = event.data.get("num_sequences", 0)
                     if pbar is None:
-                        pbar = tqdm.tqdm(total=num_batches, desc="sft train")
+                        pbar = tqdm.tqdm(total=num_batches, desc="SFT Train")
                     continue
                 elif event.type == "training_ended":
                     if pbar is not None:

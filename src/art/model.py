@@ -343,6 +343,9 @@ class Model(
         prefixed = {f"{split}/{k}": v for k, v in metrics.items()}
         output_dir = self._get_output_dir()
 
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+
         # Write to history.jsonl
         with open(f"{output_dir}/history.jsonl", "a") as f:
             f.write(

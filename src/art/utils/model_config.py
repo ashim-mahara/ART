@@ -3,22 +3,12 @@
 from dataclasses import dataclass
 from typing import Optional
 
-
-@dataclass
-class SFTDefaults:
-    """Default SFT training parameters for a model."""
-
-    batch_size: int
-    learning_rate: float
-
-
 @dataclass
 class ModelConfig:
     """Configuration for a specific model's chat template."""
 
     instruction_part: str
     response_part: str
-    sft_defaults: Optional[SFTDefaults] = None
 
 
 # Model identifier -> configuration mapping

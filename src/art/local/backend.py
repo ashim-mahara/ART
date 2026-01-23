@@ -654,7 +654,7 @@ class LocalBackend(Backend):
         # Determine batch_size
         batch_size = config.batch_size
         if batch_size == "auto":
-            batch_size = 1  # Default to 1 for SFT
+            batch_size = 2  # Default to 2 for SFT
 
         # Determine learning rates
         if config.custom_lr_schedule and len(config.custom_lr_schedule) > 0:
