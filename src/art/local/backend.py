@@ -714,7 +714,7 @@ class LocalBackend(Backend):
             print("Using service.train_sft")
 
         num_batches = len(sft_batches)
-        pbar = tqdm.tqdm(total=num_batches, desc="Processing chunk", leave=False)
+        pbar = tqdm.tqdm(total=num_batches, desc="sft train")
 
         async for result in service.train_sft(sft_batches, verbose):
             pbar.update(1)

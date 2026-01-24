@@ -243,7 +243,7 @@ def create_sft_dataset_iterator(
         progress_bar = tqdm(
             initial=initial_step,
             total=total_batch_steps,
-            desc="Training SFT",
+            desc="total progress (sft dataset)",
             unit="step",
         )
 

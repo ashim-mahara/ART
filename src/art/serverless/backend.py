@@ -449,7 +449,7 @@ class ServerlessBackend(Backend):
                 elif event.type == "training_started":
                     num_batches = event.data.get("num_sequences", 0)
                     if pbar is None:
-                        pbar = tqdm.tqdm(total=num_batches, desc="SFT Train")
+                        pbar = tqdm.tqdm(total=num_batches, desc="train sft")
                     continue
                 elif event.type == "training_ended":
                     if pbar is not None:
