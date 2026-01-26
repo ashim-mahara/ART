@@ -697,13 +697,21 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
         if config is None:
             config = SFTConfig()
 
-        # Get starting step from checkpoint for per-batch logging
-        step = await self.get_step()
-
         # Train (backend yields metrics for each batch without logging)
+        # Collect all metrics and aggregate them at the end (same as RL)
+        training_metrics: list[dict[str, float]] = []
         async for metrics in self.backend()._train_sft(
             self, trajectories, config, _config or {}, verbose
         ):
-            # Log each batch's metrics with incrementing step
-            step += 1
-            self._log_metrics(metrics, "train", step)
+            training_metrics.append(metrics)
+
+        # Log aggregated training metrics once (same as RL)
+        if training_metrics:
+            avg_metrics = {
+                k: sum(d.get(k, 0) for d in training_metrics)
+                / sum(1 for d in training_metrics if k in d)
+                for k in {k for d in training_metrics for k in d}
+            }
+            # Get the current step after training
+            step = await self.get_step()
+            self._log_metrics(avg_metrics, "train", step)

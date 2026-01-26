@@ -54,7 +54,7 @@ class ServerlessBackend(Backend):
         model.id = client_model.id
         model.entity = client_model.entity
         # Store run_id for wandb run management
-        if hasattr(client_model, 'run_id'):
+        if hasattr(client_model, "run_id"):
             model.run_id = client_model.run_id
 
     async def delete(
@@ -376,7 +376,7 @@ class ServerlessBackend(Backend):
 
             # Upload the file to W&B as a dataset artifact
             # Use the model's canonical run_id from database, or fall back to model name
-            run_id_to_use = getattr(model, 'run_id', model.name)
+            run_id_to_use = getattr(model, "run_id", model.name)
             run = wandb.init(
                 name=model.name,
                 id=run_id_to_use,  # Use stored run_id to match the canonical wandb run
@@ -389,7 +389,10 @@ class ServerlessBackend(Backend):
                 artifact = wandb.Artifact(
                     artifact_name,
                     type="dataset",
-                    metadata={"format": "jsonl", "num_trajectories": len(trajectory_list)},
+                    metadata={
+                        "format": "jsonl",
+                        "num_trajectories": len(trajectory_list),
+                    },
                 )
                 artifact.add_file(tmp_file_path, name="train.jsonl")
                 artifact = run.log_artifact(artifact)
@@ -412,7 +415,9 @@ class ServerlessBackend(Backend):
             os.unlink(tmp_file_path)
 
         # Construct the artifact URL with unique name (v0 is the first version)
-        training_folder_url = f"wandb-artifact:///{model.entity}/{model.project}/{artifact_name}:v0"
+        training_folder_url = (
+            f"wandb-artifact:///{model.entity}/{model.project}/{artifact_name}:v0"
+        )
 
         if verbose:
             print(f"Training data uploaded. Artifact URL: {training_folder_url}")

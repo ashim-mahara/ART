@@ -139,15 +139,13 @@ async def process_train_batch(
 def save_checkpoint(
     trainer: "GRPOTrainer",
     output_dir: str,
-    step: int | None = None,
     verbose: bool = False,
 ) -> str:
     """Save a checkpoint and return the checkpoint directory path."""
     if verbose:
         print("Saving new LoRA adapter...")
-    if step is None:
-        step = get_step_from_dir(output_dir) + 1
-    checkpoint_dir = get_step_checkpoint_dir(output_dir, step)
+    next_step = get_step_from_dir(output_dir) + 1
+    checkpoint_dir = get_step_checkpoint_dir(output_dir, next_step)
     os.makedirs(checkpoint_dir, exist_ok=True)
     trainer.save_model(checkpoint_dir)
     return checkpoint_dir
@@ -598,12 +596,11 @@ class UnslothService:
             }
 
         # Save checkpoint after training
-        # Name checkpoint by final training step: starting_step + num_batches
-        final_step = get_step_from_dir(self.output_dir) + len(sft_batches)
+        # Name checkpoint by final training step: starting_step + 1 (same as RL)
+        # Each train_sft() call produces one checkpoint, regardless of internal batch count
         checkpoint_dir = save_checkpoint(
             trainer=self._state.trainer,
             output_dir=self.output_dir,
-            step=final_step,
             verbose=verbose,
         )
 

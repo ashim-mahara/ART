@@ -75,7 +75,9 @@ async def main():
                 for _ in range(12)
             ]
         )
-        await model.train(train_groups, config=art.TrainConfig(learning_rate=1e-6, batch_size=1))
+        await model.train(
+            train_groups, config=art.TrainConfig(learning_rate=1e-6, batch_size=1)
+        )
     print("RL phase 2 complete.")
 
     # ========================================================================
@@ -102,7 +104,9 @@ async def main():
                 for _ in range(12)
             ]
         )
-        await model.train(train_groups, config=art.TrainConfig(learning_rate=1e-5, batch_size=1))
+        await model.train(
+            train_groups, config=art.TrainConfig(learning_rate=1e-5, batch_size=1)
+        )
     print("RL phase 4 complete.")
 
     # ========================================================================

@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
+
 @dataclass
 class ModelConfig:
     """Configuration for a specific model's chat template."""
