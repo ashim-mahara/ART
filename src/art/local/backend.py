@@ -657,11 +657,12 @@ class LocalBackend(Backend):
             batch_size = 2  # Default to 2 for SFT
 
         # Determine learning rates
-        if config.custom_lr_schedule and len(config.custom_lr_schedule) > 0:
-            # Use custom learning rate schedule
-            learning_rates = config.custom_lr_schedule
+        learning_rates: list[float]
+        if isinstance(config.learning_rate, list):
+            # Per-batch learning rates provided
+            learning_rates = config.learning_rate
         else:
-            # Use constant learning rate for all batches
+            # Single value - create constant list for all batches
             num_batches = math.ceil(len(trajectory_list) / batch_size)
             learning_rates = [config.learning_rate] * num_batches
 

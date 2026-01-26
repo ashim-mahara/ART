@@ -7,7 +7,7 @@ import tempfile
 import pytest
 
 from art.trajectories import Trajectory
-from art.utils.sft import create_lr_schedule, create_sft_dataset_iterator, iterate_file
+from art.utils.sft import create_lr_schedule, iterate_file, prepare_sft_dataset
 
 
 # Helper to create dummy trajectories
@@ -43,48 +43,148 @@ def create_temp_jsonl(num_trajectories: int) -> Path:
 # ============================================================================
 
 
-def test_create_sft_dataset_iterator():
-    """Test create_sft_dataset_iterator yields correct chunks."""
+def test_prepare_sft_dataset_basic():
+    """Test prepare_sft_dataset prepares trajectories and learning rates correctly."""
     trajectories = [create_dummy_trajectory(i) for i in range(20)]
 
-    # batch_size=8, chunk_size=2 means each chunk has up to 2 batches of 8 trajectories
-    # With 20 trajectories per epoch:
-    #   - Items per chunk: 8 * 2 = 16
-    #   - Chunks per epoch: ceil(20/16) = 2 (one with 16 trajs, one with 4 trajs)
-    # With 3 epochs: 2 * 3 = 6 chunks total
-
-    chunks = list(
-        create_sft_dataset_iterator(
-            trajectories,
-            epochs=3,
-            batch_size=8,  # 8 trajectories per batch
-            chunk_size=2,  # 2 batches per chunk
-            use_tqdm=False,
-        )
+    # With 20 trajectories, 3 epochs, batch_size=4:
+    # - Total trajectories: 20 * 3 = 60
+    # - Total batches: ceil(60 / 4) = 15
+    all_trajs, learning_rates = prepare_sft_dataset(
+        trajectories=trajectories,
+        epochs=3,
+        batch_size=4,
+        peak_lr=1e-4,
+        schedule_type="linear",
+        warmup_ratio=0.1,
     )
 
-    # Should have 6 chunks total (2 per epoch * 3 epochs)
-    assert len(chunks) == 6
+    # Should have 60 trajectories (20 * 3 epochs)
+    assert len(all_trajs) == 60
 
-    # Pattern repeats for each epoch: full chunk (16 trajs), partial chunk (4 trajs)
-    assert len(chunks[0].trajectories) == 16  # Epoch 1, chunk 1
-    assert len(chunks[1].trajectories) == 4  # Epoch 1, chunk 2 (partial)
-    assert len(chunks[2].trajectories) == 16  # Epoch 2, chunk 1
-    assert len(chunks[3].trajectories) == 4  # Epoch 2, chunk 2 (partial)
-    assert len(chunks[4].trajectories) == 16  # Epoch 3, chunk 1
-    assert len(chunks[5].trajectories) == 4  # Epoch 3, chunk 2 (partial)
+    # Should have 15 learning rates (one per batch)
+    assert len(learning_rates) == 15
 
-    # Verify chunk metadata
-    # Chunk 0: starts at batch 0 (16 trajectories = 2 batches)
-    assert chunks[0].step == 0
-    assert chunks[0].epoch == 0
-    assert chunks[0].epoch_step == 0
 
-    # Chunk 1: starts at batch 2 (after 2 batches from chunk 0)
-    # chunk_start=16, global_batch_step = ceil(16/8) = 2
-    assert chunks[1].step == 2
-    assert chunks[1].epoch == 0
-    assert chunks[1].epoch_step == 2
+def test_prepare_sft_dataset_single_epoch():
+    """Test prepare_sft_dataset with single epoch."""
+    trajectories = [create_dummy_trajectory(i) for i in range(10)]
+
+    all_trajs, learning_rates = prepare_sft_dataset(
+        trajectories=trajectories,
+        epochs=1,
+        batch_size=2,
+        peak_lr=1e-4,
+        schedule_type="constant",
+    )
+
+    # Should have 10 trajectories
+    assert len(all_trajs) == 10
+
+    # Should have 5 learning rates (ceil(10/2) = 5)
+    assert len(learning_rates) == 5
+
+    # With constant schedule, all learning rates should be the same
+    assert all(lr == pytest.approx(1e-4) for lr in learning_rates)
+
+
+def test_prepare_sft_dataset_epoch_shuffling():
+    """Test that different epochs have different trajectory orderings."""
+    trajectories = [create_dummy_trajectory(i) for i in range(10)]
+
+    all_trajs, _ = prepare_sft_dataset(
+        trajectories=trajectories,
+        epochs=2,
+        batch_size=10,
+        peak_lr=1e-4,
+        schedule_type="constant",
+    )
+
+    # Should have 20 trajectories (10 * 2 epochs)
+    assert len(all_trajs) == 20
+
+    # Get content from each epoch
+    epoch0_contents = [
+        t.messages_and_choices[0]["content"]  # type: ignore[index,typeddict-item]
+        for t in all_trajs[:10]
+    ]
+    epoch1_contents = [
+        t.messages_and_choices[0]["content"]  # type: ignore[index,typeddict-item]
+        for t in all_trajs[10:]
+    ]
+
+    # Different epochs should have different orderings (due to shuffle)
+    assert epoch0_contents != epoch1_contents
+
+
+def test_prepare_sft_dataset_deterministic_shuffling():
+    """Test that shuffling is deterministic with same seed."""
+    trajectories = [create_dummy_trajectory(i) for i in range(10)]
+
+    # Run twice with same seed
+    all_trajs1, _ = prepare_sft_dataset(
+        trajectories=trajectories,
+        epochs=2,
+        batch_size=5,
+        peak_lr=1e-4,
+        schedule_type="constant",
+        shuffle_seed=42,
+    )
+
+    all_trajs2, _ = prepare_sft_dataset(
+        trajectories=trajectories,
+        epochs=2,
+        batch_size=5,
+        peak_lr=1e-4,
+        schedule_type="constant",
+        shuffle_seed=42,
+    )
+
+    # Should get same order
+    for t1, t2 in zip(all_trajs1, all_trajs2):
+        assert t1.reward == t2.reward
+
+
+def test_prepare_sft_dataset_with_initial_step():
+    """Test resuming from initial_step skips correct trajectories and LRs."""
+    trajectories = [create_dummy_trajectory(i) for i in range(10)]
+
+    # Without initial_step
+    all_trajs_full, lrs_full = prepare_sft_dataset(
+        trajectories=trajectories,
+        epochs=1,
+        batch_size=2,
+        peak_lr=1e-4,
+        schedule_type="linear",
+    )
+
+    # With initial_step=2: skip first 2 batches (4 trajectories)
+    all_trajs_resumed, lrs_resumed = prepare_sft_dataset(
+        trajectories=trajectories,
+        epochs=1,
+        batch_size=2,
+        peak_lr=1e-4,
+        schedule_type="linear",
+        initial_step=2,
+    )
+
+    # Should have fewer trajectories and learning rates
+    assert len(all_trajs_resumed) == len(all_trajs_full) - 4  # Skip 2 batches * 2 trajs
+    assert len(lrs_resumed) == len(lrs_full) - 2  # Skip 2 LRs
+
+
+def test_prepare_sft_dataset_empty():
+    """Test prepare_sft_dataset with empty trajectories."""
+    all_trajs, learning_rates = prepare_sft_dataset(
+        trajectories=[],
+        epochs=3,
+        batch_size=4,
+        peak_lr=1e-4,
+        schedule_type="linear",
+    )
+
+    assert all_trajs == []
+    assert learning_rates == []
 
 
 def test_iterate_file():
@@ -130,17 +230,6 @@ def test_iterate_file_with_shuffle():
 
     finally:
         jsonl_file.unlink()
-
-
-def test_chunk_size_validation():
-    """Test that chunk_size < 1 raises an error."""
-    trajectories = [create_dummy_trajectory(i) for i in range(10)]
-
-    with pytest.raises(ValueError, match="chunk_size must be >= 1"):
-        list(create_sft_dataset_iterator(trajectories, chunk_size=0, use_tqdm=False))
-
-    with pytest.raises(ValueError, match="chunk_size must be >= 1"):
-        list(create_sft_dataset_iterator(trajectories, chunk_size=-1, use_tqdm=False))
 
 
 def test_lr_schedule_warmup_not_zero():
@@ -210,64 +299,6 @@ def test_lr_schedule_no_warmup():
     assert len(lrs) == 5
     assert lrs[0] == pytest.approx(1e-4)  # Start at peak (no warmup)
     assert lrs[-1] == pytest.approx(0)  # End at min_lr
-
-
-def test_create_sft_dataset_iterator_with_initial_step():
-    """Test resuming from initial_step skips correct number of batches."""
-    trajectories = [create_dummy_trajectory(i) for i in range(20)]
-
-    # Without initial_step: should get all chunks
-    all_chunks = list(
-        create_sft_dataset_iterator(
-            trajectories, epochs=1, batch_size=4, chunk_size=2, use_tqdm=False
-        )
-    )
-
-    # With initial_step=2: should skip first 2 batches (first chunk)
-    resumed_chunks = list(
-        create_sft_dataset_iterator(
-            trajectories,
-            epochs=1,
-            batch_size=4,
-            chunk_size=2,
-            initial_step=2,
-            use_tqdm=False,
-        )
-    )
-
-    # Should have fewer chunks when resuming
-    assert len(resumed_chunks) < len(all_chunks)
-    # First resumed chunk should start at step 2 or later
-    assert resumed_chunks[0].step >= 2
-
-
-def test_create_sft_dataset_iterator_epoch_shuffling():
-    """Test that different epochs have different trajectory orderings."""
-    trajectories = [create_dummy_trajectory(i) for i in range(10)]
-
-    chunks = list(
-        create_sft_dataset_iterator(
-            trajectories,
-            epochs=2,
-            batch_size=10,  # One batch per epoch
-            chunk_size=1,
-            use_tqdm=False,
-        )
-    )
-
-    # Should have 2 chunks (one per epoch)
-    assert len(chunks) == 2
-
-    # Different epochs should have different orderings (due to shuffle)
-    epoch0_contents = [
-        t.messages_and_choices[0]["content"]  # type: ignore[index,typeddict-item]
-        for t in chunks[0].trajectories
-    ]
-    epoch1_contents = [
-        t.messages_and_choices[0]["content"]  # type: ignore[index,typeddict-item]
-        for t in chunks[1].trajectories
-    ]
-    assert epoch0_contents != epoch1_contents
 
 
 if __name__ == "__main__":

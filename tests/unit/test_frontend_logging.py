@@ -641,4 +641,6 @@ class TestTrainSFTMetricsAggregation:
 
         # Verify no history.jsonl created (no metrics to log)
         history_path = tmp_path / "test-project/models/test-sft-empty/history.jsonl"
-        assert not history_path.exists(), "No history.jsonl should be created for empty training"
+        assert not history_path.exists(), (
+            "No history.jsonl should be created for empty training"
+        )

@@ -67,7 +67,7 @@ class ExperimentalTrainingConfig(TypedDict, total=False):
 
 class SFTTrainingConfig(TypedDict, total=False):
     batch_size: int | None
-    learning_rate: float | None
+    learning_rate: float | list[float] | None
 
 
 class TrainingJob(BaseModel):

@@ -1,29 +1,14 @@
 """Utilities for supervised fine-tuning (SFT)."""
 
-from dataclasses import dataclass
 import json
 import math
 import random
 from typing import TYPE_CHECKING, Generator, List, Literal
 
-from tqdm.auto import tqdm
-
 if TYPE_CHECKING:
     from art.dev import SFTConfig as DevSFTConfig
     from art.model import TrainableModel
     from art.trajectories import Trajectory
-    from art.types import SFTConfig
-
-
-@dataclass
-class SFTDatasetChunk:
-    """Container for SFT dataset chunk with trajectories, config, and step information."""
-
-    trajectories: List["Trajectory"]
-    config: "SFTConfig"
-    step: int
-    epoch: int
-    epoch_step: int
 
 
 def _parse_jsonl_line(line: str) -> "Trajectory":
@@ -138,172 +123,85 @@ def create_lr_schedule(
     return learning_rates
 
 
-def create_sft_dataset_iterator(
+def prepare_sft_dataset(
     trajectories: List["Trajectory"],
-    epochs: int = 1,
-    batch_size: int = 1,
-    chunk_size: int = 50,
-    peak_lr: float = 2e-4,
-    schedule_type: Literal["cosine", "linear", "constant"] = "linear",
+    epochs: int,
+    batch_size: int,
+    peak_lr: float,
+    schedule_type: Literal["cosine", "linear", "constant"],
     warmup_ratio: float = 0.1,
+    shuffle_seed: int = 42,
     initial_step: int = 0,
-    use_tqdm: bool = True,
-) -> Generator[SFTDatasetChunk, None, None]:
+) -> tuple[List["Trajectory"], List[float]]:
     """
-    Create an iterator that yields SFT dataset chunks with trajectories, config, and step info.
+    Prepare all trajectories for training and calculate learning rates.
 
-    Combines trajectory batching with learning rate scheduling. Yields SFTDatasetChunk objects
-    containing flattened trajectories, SFTConfig with learning rates, and step tracking info.
+    This function handles epoch management by shuffling and concatenating
+    trajectories for all epochs, and calculates the learning rate schedule.
 
     Args:
-        trajectories: List of Trajectory objects to train on
-        epochs: Number of times to iterate over the trajectories. Default: 1
-        batch_size: Number of trajectories per batch (one weight update per batch). Default: 1
-        chunk_size: Number of batches to process per train_sft call. Default: 50.
-                    This is an internal optimization parameter and does not affect training.
-        peak_lr: Peak learning rate. Default: 2e-4
-        schedule_type: Learning rate schedule type ("cosine", "linear", "constant"). Default: "constant"
-        warmup_ratio: Ratio of total steps to use for warmup (0.0 to 1.0). Default: 0.1
-        initial_step: The global training step (batch) to start from. Default: 0.
-                      Useful for resuming training.
-        use_tqdm: Whether to display a progress bar. Default: True
+        trajectories: List of trajectories to train on
+        epochs: Number of epochs (passes through the dataset)
+        batch_size: Number of trajectories per batch
+        peak_lr: Peak learning rate for the schedule
+        schedule_type: Learning rate schedule type ("cosine", "linear", "constant")
+        warmup_ratio: Ratio of total steps to use for warmup (0.0 to 1.0)
+        shuffle_seed: Random seed for deterministic shuffling (default: 42)
+        initial_step: Starting step for resuming training (skips first N batches)
 
-    Yields:
-        SFTDatasetChunk containing:
-            - trajectories: Flattened list of trajectories for this chunk
-            - config: SFTConfig with custom_lr_schedule containing learning rates for each batch
-            - step: Global training step (batch number) at the start of this chunk
-            - epoch: Current epoch number (0-indexed)
-            - epoch_step: Training step within current epoch (0-indexed)
+    Returns:
+        Tuple of:
+        - All trajectories for all epochs (shuffled per epoch, concatenated)
+        - List of learning rates (one per batch, starting from initial_step)
 
     Example:
-        trajectories = [traj1, traj2, ..., traj100]
-
-        # Create SFT dataset iterator with constant schedule (default)
-        for chunk in create_sft_dataset_iterator(
+        trajectories = [traj1, traj2, traj3, traj4]
+        all_trajs, learning_rates = prepare_sft_dataset(
             trajectories=trajectories,
             epochs=3,
-            batch_size=4,
-            chunk_size=10,
-            peak_lr=1e-4,
-        ):
-            # chunk.trajectories is a flat list of up to 40 trajectories
-            # chunk.config.custom_lr_schedule is a list of learning rates (one per batch)
-            # chunk.config.batch_size is 4
-            # chunk.step is global training step (weight update number)
-            # chunk.epoch is current epoch
-            # chunk.epoch_step is training step within epoch
-            await model.train_sft(chunk.trajectories, chunk.config)
-
-        # Resume from training step 50
-        for chunk in create_sft_dataset_iterator(
-            trajectories=trajectories,
-            epochs=3,
-            batch_size=4,
-            chunk_size=10,
-            initial_step=50,
-        ):
-            # Starts from training step 50
-            pass
+            batch_size=2,
+            peak_lr=2e-4,
+            schedule_type="linear",
+        )
+        # all_trajs has 12 trajectories (4 * 3 epochs)
+        # learning_rates has 6 values (ceil(12 / 2) batches)
     """
-    from art.types import SFTConfig
+    if len(trajectories) == 0:
+        return [], []
 
-    if chunk_size < 1:
-        raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+    # Calculate total batches across all epochs
+    total_trajectories = len(trajectories) * epochs
+    total_batches = math.ceil(total_trajectories / batch_size)
+    warmup_steps = int(total_batches * warmup_ratio)
 
-    dataset_size = len(trajectories)
-    if dataset_size == 0:
-        return
-
-    # Calculate total batch steps (one step per batch)
-    batches_per_epoch = math.ceil(dataset_size / batch_size)
-    total_batch_steps = batches_per_epoch * epochs
-
-    # Calculate warmup steps
-    warmup_steps = int(total_batch_steps * warmup_ratio)
-
-    # Create learning rate schedule (one LR per batch)
-    custom_lr_schedule = create_lr_schedule(
-        total_steps=total_batch_steps,
+    # Calculate learning rates for all batches
+    full_schedule = create_lr_schedule(
+        total_steps=total_batches,
         peak_lr=peak_lr,
         method=schedule_type,
         warmup_steps=warmup_steps,
-        min_lr=0.0,
     )
 
-    # Calculate chunk iteration parameters
-    items_per_chunk = batch_size * chunk_size
-    chunks_per_epoch = math.ceil(dataset_size / items_per_chunk)
+    # Slice the schedule starting from initial_step (for resuming)
+    learning_rates = full_schedule[initial_step:]
 
-    # Convert initial_step (batch-based) to initial_chunk for skipping
-    initial_chunk = initial_step // chunk_size
-
-    progress_bar = None
-    if use_tqdm:
-        progress_bar = tqdm(
-            initial=initial_step,
-            total=total_batch_steps,
-            desc="total progress (sft dataset)",
-            unit="step",
-        )
+    # Prepare trajectories for all epochs with shuffling
+    all_trajectories: List["Trajectory"] = []
+    indices = list(range(len(trajectories)))
 
     for epoch in range(epochs):
-        # Create indices and shuffle deterministically based on epoch
-        indices = list(range(dataset_size))
-        rng = random.Random(epoch)
-        rng.shuffle(indices)
+        # Deterministic shuffle per epoch (different seed per epoch)
+        epoch_indices = indices.copy()
+        random.Random(shuffle_seed + epoch).shuffle(epoch_indices)
+        for idx in epoch_indices:
+            all_trajectories.append(trajectories[idx])
 
-        for chunk_idx in range(chunks_per_epoch):
-            # Calculate global chunk index for skipping
-            global_chunk_idx = epoch * chunks_per_epoch + chunk_idx
+    # Skip trajectories for initial_step (for resuming)
+    start_trajectory_idx = initial_step * batch_size
+    if start_trajectory_idx > 0:
+        all_trajectories = all_trajectories[start_trajectory_idx:]
 
-            # Skip if before initial_chunk
-            if global_chunk_idx < initial_chunk:
-                continue
-
-            # Get indices for this chunk
-            chunk_start = chunk_idx * items_per_chunk
-            chunk_end = min(chunk_start + items_per_chunk, dataset_size)
-            step_indices = indices[chunk_start:chunk_end]
-
-            # Flatten trajectories for this chunk
-            chunk_trajectories: List["Trajectory"] = [
-                trajectories[idx] for idx in step_indices
-            ]
-
-            # Calculate learning rates for each batch in this chunk
-            chunk_lrs: List[float] = []
-            num_batches_in_chunk = math.ceil(len(step_indices) / batch_size)
-
-            # Calculate global batch step at the start of this chunk
-            global_batch_step = epoch * batches_per_epoch + (chunk_start // batch_size)
-
-            for batch_idx in range(num_batches_in_chunk):
-                chunk_lrs.append(custom_lr_schedule[global_batch_step + batch_idx])
-
-            # Create SFTConfig with custom learning rate schedule
-            config = SFTConfig(
-                batch_size=batch_size,
-                custom_lr_schedule=chunk_lrs,
-            )
-
-            # epoch_step is the batch step within the current epoch
-            epoch_batch_step = chunk_start // batch_size
-
-            yield SFTDatasetChunk(
-                trajectories=chunk_trajectories,
-                config=config,
-                step=global_batch_step,
-                epoch=epoch,
-                epoch_step=epoch_batch_step,
-            )
-
-            # Update progress bar by the number of batches in this chunk
-            if progress_bar:
-                progress_bar.update(num_batches_in_chunk)
-
-    if progress_bar:
-        progress_bar.close()
+    return all_trajectories, learning_rates
 
 
 def iterate_file(
@@ -391,20 +289,20 @@ async def train_sft_from_file(
     file_path: str,
     epochs: int = 1,
     batch_size: int = 1,
-    chunk_size: int = 50,
     peak_lr: float = 2e-4,
     schedule_type: Literal["cosine", "linear", "constant"] = "linear",
     warmup_ratio: float = 0.1,
     initial_step: int = 0,
-    use_tqdm: bool = True,
     _config: "DevSFTConfig | None" = None,
     verbose: bool = False,
 ) -> None:
     """
     Train a model using supervised fine-tuning from a JSONL file.
 
-    This is a convenience function that combines iterate_file() and
-    create_sft_dataset_iterator() to provide a simple interface for SFT training.
+    This function loads trajectories from a file, handles epoch management with
+    shuffling, calculates the learning rate schedule, and makes a single train_sft
+    call with all data. This allows training to continue even if the client
+    disconnects after the call is made.
 
     Args:
         model: The TrainableModel to fine-tune. Must be registered with a backend.
@@ -413,14 +311,11 @@ async def train_sft_from_file(
                    - tools: Optional list of tools
         epochs: Number of times to iterate over the dataset. Default: 1
         batch_size: Number of trajectories per batch (one weight update per batch). Default: 1
-        chunk_size: Number of batches to process per train_sft call. Default: 50.
-                    This is an internal optimization parameter and does not affect training.
         peak_lr: Peak learning rate. Default: 2e-4
         schedule_type: Learning rate schedule type ("cosine", "linear", "constant"). Default: "linear"
         warmup_ratio: Ratio of total steps to use for warmup (0.0 to 1.0). Default: 0.1
         initial_step: The global training step (batch) to start from. Default: 0.
                       Useful for resuming training.
-        use_tqdm: Whether to display a progress bar. Default: True
         _config: Additional experimental configuration. Use at your own risk.
         verbose: Whether to print verbose output. Default: False
 
@@ -459,27 +354,46 @@ async def train_sft_from_file(
                 warmup_ratio=0.1,
             )
     """
-    # Load all trajectories into memory (needed for shuffling across epochs)
+    from art.types import SFTConfig
+
+    # Load all trajectories into memory
     trajectories = list(iterate_file(file_path, shuffle=False))
 
     if verbose:
         print(f"Loaded {len(trajectories)} trajectories from {file_path}")
 
-    # Create dataset iterator and train
-    for chunk in create_sft_dataset_iterator(
+    if len(trajectories) == 0:
+        if verbose:
+            print("No trajectories to train on")
+        return
+
+    # Prepare dataset: shuffle per epoch, concatenate, and calculate learning rates
+    all_trajectories, learning_rates = prepare_sft_dataset(
         trajectories=trajectories,
         epochs=epochs,
         batch_size=batch_size,
-        chunk_size=chunk_size,
         peak_lr=peak_lr,
         schedule_type=schedule_type,
         warmup_ratio=warmup_ratio,
         initial_step=initial_step,
-        use_tqdm=use_tqdm,
-    ):
-        await model.train_sft(
-            chunk.trajectories,
-            chunk.config,
-            _config=_config,
-            verbose=verbose,
-        )
+    )
+
+    if verbose:
+        total_batches = len(learning_rates)
+        print(f"Prepared {len(all_trajectories)} trajectories for {epochs} epoch(s)")
+        print(f"Total batches: {total_batches}, batch_size: {batch_size}")
+        print(f"Learning rate schedule: {schedule_type}, peak_lr: {peak_lr}")
+
+    # Create config with per-batch learning rates
+    config = SFTConfig(
+        learning_rate=learning_rates,
+        batch_size=batch_size,
+    )
+
+    # Single train_sft call with all trajectories
+    await model.train_sft(
+        all_trajectories,
+        config,
+        _config=_config,
+        verbose=verbose,
+    )
