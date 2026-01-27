@@ -119,6 +119,8 @@ def _trajectory_has_choice(trajectory: Trajectory) -> bool:
             if isinstance(message_or_choice, Choice):
                 return True
     return False
+
+
 def trajectory_groups_to_datums(
     trajectory_groups: Iterable[TrajectoryGroup],
     renderer: Any,
