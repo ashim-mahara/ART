@@ -9,6 +9,7 @@ import pytest
 
 import art
 from art.tinker_native import TinkerNativeBackend
+
 DEFAULT_BASE_MODEL = "Qwen/Qwen3-30B-A3B-Instruct-2507"
 
 
