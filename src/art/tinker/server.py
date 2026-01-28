@@ -1,7 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
 import os
-import re
 import socket
 import time
 import uuid
@@ -18,20 +17,9 @@ from openai.types.chat.chat_completion_token_logprob import ChatCompletionTokenL
 from openai.types.chat.completion_create_params import CompletionCreateParams
 from openai.types.completion_usage import CompletionUsage
 import tinker
-from tinker_cookbook import renderers
 import uvicorn
 
-# Patch Tinker's Qwen3InstructRenderer which mistakenly expects "args" instead of "arguments" in tool calls.
-_parse_tool_call = renderers.Qwen3InstructRenderer._parse_tool_call
-
-
-def _patched_parse_tool_call(
-    self, tool_call_str: str
-) -> list[renderers.ToolCall] | None:
-    return _parse_tool_call(self, tool_call_str.replace('"arguments": ', '"args": '))
-
-
-renderers.Qwen3InstructRenderer._parse_tool_call = _patched_parse_tool_call  # ty:ignore[invalid-assignment]
+from tinker_cookbook import renderers
 
 
 @dataclass
@@ -135,37 +123,30 @@ class OpenAICompatibleTinkerServer:
                     "Tokens and logprobs must have the same length"
                 )
                 message, _ = renderer.parse_response(sequence.tokens)
+                openai_message = renderer.to_openai_message(message)
+                tool_calls = (
+                    [
+                        ChatCompletionMessageFunctionToolCall(
+                            type="function",
+                            id=tool_call.get("id") or "",
+                            function=Function(
+                                name=tool_call["function"]["name"],
+                                arguments=tool_call["function"]["arguments"],
+                            ),
+                        )
+                        for tool_call in openai_message.get("tool_calls", [])
+                    ]
+                    if openai_message.get("tool_calls")
+                    else None
+                )
                 choices.append(
                     Choice(
                         finish_reason=sequence.stop_reason,
                         index=i,
                         message=ChatCompletionMessage(
-                            # the qwen renderer does not strip tool calls
-                            # from the content, so we remove them here.
-                            content=(
-                                re.sub(
-                                    r"(?:\n?<tool_call>.*?</tool_call>)+\s*$",
-                                    "",
-                                    message["content"],
-                                    flags=re.DOTALL,
-                                )
-                                if message["content"]
-                                else message["content"]
-                            )
-                            or None,
+                            content=openai_message.get("content") or None,
                             role="assistant",
-                            tool_calls=[
-                                ChatCompletionMessageFunctionToolCall(
-                                    type="function",
-                                    id=tool_call.id or "",
-                                    function=Function(
-                                        name=tool_call.function.name,
-                                        arguments=tool_call.function.arguments,
-                                    ),
-                                )
-                                for tool_call in message.get("tool_calls", [])
-                            ]
-                            or None,
+                            tool_calls=tool_calls,
                         ),
                         logprobs=ChoiceLogprobs(
                             content=[

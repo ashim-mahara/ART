@@ -4,8 +4,9 @@ from typing import Any, Iterable, cast
 
 from openai.types.chat.chat_completion import Choice
 import tinker
-from tinker_cookbook import renderers
 import torch
+
+from tinker_cookbook import renderers
 
 from ..trajectories import History, Trajectory, TrajectoryGroup, get_messages
 from ..types import MessagesAndChoices
@@ -16,6 +17,8 @@ def create_conversation_prefix_with_tools(
 ) -> list[dict[str, Any]]:
     """Create conversation prefix with tools using the renderer implementation."""
     return renderer.create_conversation_prefix_with_tools(tools, system_prompt)
+
+
 def compute_advantages(
     rewards: list[float], normalize_advantages: bool = True
 ) -> list[float]:

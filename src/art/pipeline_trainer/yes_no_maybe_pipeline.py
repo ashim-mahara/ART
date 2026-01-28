@@ -12,6 +12,7 @@ import re
 from dotenv import load_dotenv
 
 import art
+from art.tinker_native import TinkerNativeBackend
 
 from . import PipelineTrainer
 
@@ -106,7 +107,7 @@ async def main() -> None:
     model_name = f"{MODEL_NAME}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
     print("Initializing TinkerNativeBackend")
-    backend = art.TinkerNativeBackend()
+    backend = TinkerNativeBackend()
 
     print(f"Initializing TrainableModel: {model_name}")
     model = art.TrainableModel(name=model_name, project=PROJECT, base_model=BASE_MODEL)
