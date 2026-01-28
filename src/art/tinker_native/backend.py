@@ -23,8 +23,9 @@ from openai.types.chat.chat_completion_token_logprob import ChatCompletionTokenL
 from openai.types.chat.completion_create_params import CompletionCreateParams
 from openai.types.completion_usage import CompletionUsage
 import tinker
-from tinker_cookbook import renderers, tokenizer_utils
 import uvicorn
+
+from art.tinker.cookbook_v import renderers, tokenizer_utils
 
 from .. import dev
 from ..backend import Backend
@@ -369,25 +370,26 @@ class TinkerNativeBackend(Backend):
                 parsed_message = parse_completion_to_openai_message(
                     list(sequence.tokens), state.renderer
                 )
+                content = parsed_message.get("content")
                 tool_calls: list[ChatCompletionMessageToolCallUnion] | None = None
                 if parsed_message.get("tool_calls"):
                     tool_calls = [
                         ChatCompletionMessageFunctionToolCall(
                             type="function",
-                            id=tool_call["id"],
+                            id=tool_call.get("id") or f"call_{idx}",
                             function=Function(
                                 name=tool_call["function"]["name"],
                                 arguments=tool_call["function"]["arguments"],
                             ),
                         )
-                        for tool_call in parsed_message["tool_calls"]
+                        for idx, tool_call in enumerate(parsed_message["tool_calls"])
                     ]
                 choices.append(
                     Choice(
                         finish_reason=sequence.stop_reason,
                         index=i,
                         message=ChatCompletionMessage(
-                            content=parsed_message.get("content", ""),
+                            content=content or None,
                             role="assistant",
                             tool_calls=tool_calls,
                         ),

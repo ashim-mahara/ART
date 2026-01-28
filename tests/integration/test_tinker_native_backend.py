@@ -8,6 +8,7 @@ import openai
 import pytest
 
 import art
+from art.tinker_native import TinkerNativeBackend
 
 DEFAULT_BASE_MODEL = "Qwen/Qwen3-30B-A3B-Instruct-2507"
 
@@ -57,8 +58,8 @@ async def simple_rollout(
 async def test_tinker_native_backend():
     model_name = f"test-tinker-native-{uuid.uuid4().hex[:8]}"
     with tempfile.TemporaryDirectory() as tmpdir:
-        backend = art.TinkerNativeBackend(path=tmpdir)  # type: ignore[attr-defined]
-        model = art.TrainableModel(  # type: ignore[attr-defined]
+        backend = TinkerNativeBackend(path=tmpdir)
+        model = art.TrainableModel(
             name=model_name,
             project="integration-tests",
             base_model=get_base_model(),

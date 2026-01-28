@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 from typing import Any, cast
+import uuid
 
 from dotenv import load_dotenv
 from openai.types.chat.chat_completion_tool_choice_option_param import (
@@ -16,6 +17,7 @@ from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
 import polars as pl
 
 import art
+from art.tinker_native import TinkerNativeBackend
 
 from . import PipelineTrainer, make_group_rollout_fn
 
@@ -178,6 +180,8 @@ async def main() -> None:
         "BASE_MODEL", "Qwen/Qwen3-4B-Instruct-2507"
     )  # Qwen/Qwen3-30B-A3B-Instruct-2507
     model_name = os.environ.get("MODEL_NAME", "pipeline-binary-prefix-tool")
+    run_suffix = os.environ.get("RUN_SUFFIX") or uuid.uuid4().hex[:8]
+    model_name = f"{model_name}-{run_suffix}"
     project = os.environ.get("PROJECT", "binary-prefix-tool-pipeline")
     art_path = os.environ.get("ART_PATH")
 
@@ -213,7 +217,7 @@ async def main() -> None:
             }
         }
 
-    backend = art.TinkerNativeBackend(path=art_path)
+    backend = TinkerNativeBackend(path=art_path)
     model = art.TrainableModel(
         name=model_name,
         project=project,
@@ -239,6 +243,7 @@ async def main() -> None:
         )
         choice = response.choices[0]
         raw_guess, source = extract_guess(choice)
+        sampled_content = choice.message.content or ""
         guess = raw_guess or ""
         valid_guess = is_valid_guess(guess)
         prefix_len = shared_prefix_len(guess, SECRET_BITS) if valid_guess else 0
@@ -258,6 +263,7 @@ async def main() -> None:
             messages_and_choices=[*messages, choice],
             tools=TOOLS,
             reward=reward,
+            logs=[f"sampled_content:\n{sampled_content}"],
             metrics=metrics,
         )
 

@@ -57,13 +57,6 @@ from .gather import gather_trajectories, gather_trajectory_groups
 from .local import LocalBackend
 from .model import Model, TrainableModel
 from .serverless import ServerlessBackend
-
-try:
-    from .tinker import TinkerBackend
-    from .tinker_native import TinkerNativeBackend
-except ModuleNotFoundError:
-    TinkerBackend = None  # type: ignore[assignment]
-    TinkerNativeBackend = None  # type: ignore[assignment]
 from .trajectories import Trajectory, TrajectoryGroup
 from .types import (
     LocalTrainResult,
@@ -102,5 +95,3 @@ __all__ = [
     "capture_yielded_trajectory",
     "yield_trajectory",
 ]
-if TinkerBackend is not None:
-    __all__.extend(["TinkerBackend", "TinkerNativeBackend"])

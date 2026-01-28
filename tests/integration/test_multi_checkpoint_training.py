@@ -23,6 +23,7 @@ import pytest
 
 import art
 from art.local import LocalBackend
+from art.tinker import TinkerBackend
 from art.types import LocalTrainResult, ServerlessTrainResult, TrainResult
 
 # Use a small model for fast testing
@@ -116,7 +117,7 @@ async def test_tinker_backend():
     """Test multi-checkpoint inference with TinkerBackend."""
     model_name = f"test-multi-ckpt-tinker-{uuid.uuid4().hex[:8]}"
     with tempfile.TemporaryDirectory() as tmpdir:
-        backend = art.TinkerBackend(path=tmpdir)
+        backend = TinkerBackend(path=tmpdir)
         model = art.TrainableModel(
             name=model_name,
             project="integration-tests",
