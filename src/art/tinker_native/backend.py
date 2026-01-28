@@ -25,7 +25,7 @@ from openai.types.completion_usage import CompletionUsage
 import tinker
 import uvicorn
 
-from art.tinker_cookbook_v import renderers, tokenizer_utils
+from art.tinker.cookbook_v import renderers, tokenizer_utils
 
 from .. import dev
 from ..backend import Backend

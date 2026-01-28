@@ -339,7 +339,7 @@ class Qwen3DisableThinkingRenderer(Qwen3Renderer):
 
     This renderer matches HuggingFace's Qwen3 chat template behavior with
     enable_thinking=False (or thinking=False for apply_chat_template). It adds
-    empty <think>\n\n</think>\n\n blocks to assistant messages, signaling to
+    empty <think>\\n\\n</think>\\n\\n blocks to assistant messages, signaling to
     the model that it should respond directly without extended reasoning.
 
     Use this renderer when you want to train or sample from Qwen3 models in
@@ -448,9 +448,9 @@ class Qwen3VLRenderer(Qwen3Renderer):
             base_parts: list[ImagePart | TextPart] = []
             for p in content:
                 if p["type"] == "text":
-                    base_parts.append(p)
+                    base_parts.append(cast(TextPart, p))
                 elif p["type"] == "image":
-                    base_parts.append(p)
+                    base_parts.append(cast(ImagePart, p))
                 elif p["type"] == "thinking":
                     if not strip_thinking:
                         # Render thinking as <think>...</think> text

@@ -506,16 +506,16 @@ class RenderedMessage:
     Attributes:
         output: What the model generates for this turn: the message text/images plus
             end-of-turn tokens. This is the trainable portion.
-            Examples: " Hello world\n\n" (RoleColon), "Hello world<|eot_id|>" (Llama3).
+            Examples: " Hello world\\\\n\\\\n" (RoleColon), "Hello world<|eot_id|>" (Llama3).
         header: Role identifier and delimiters that introduce the turn. This is what the
             model sees but does not generate.
-            Examples: "User:" (RoleColon), "<|start_header_id|>user<|end_header_id|>\n\n" (Llama3).
+            Examples: "User:" (RoleColon), "<|start_header_id|>user<|end_header_id|>\\\\n\\\\n" (Llama3).
             Typically receives zero training weight.
         stop_overlap: Edge case field for formats where the stop sequence spans message
             boundaries. Most renderers (Llama3, Qwen3, DeepSeek, etc.) don't use this—their
             stop tokens are included in output.
 
-            Only RoleColonRenderer uses this. Its stop sequence is "\n\nUser:", where "\n\n"
+            Only RoleColonRenderer uses this. Its stop sequence is "\\\\n\\\\nUser:", where "\\\\n\\\\n"
             ends the output but "User:" would duplicate the next message's header. To avoid
             duplication, "User:" is stored here and only appended for the last message in
             supervised training. The name "stop_overlap" reflects that these tokens are the
