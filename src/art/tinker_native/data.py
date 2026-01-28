@@ -6,7 +6,7 @@ from openai.types.chat.chat_completion import Choice
 import tinker
 import torch
 
-from tinker_cookbook import renderers
+from tinker_cookbook_v import renderers
 
 from ..trajectories import History, Trajectory, TrajectoryGroup, get_messages
 from ..types import MessagesAndChoices

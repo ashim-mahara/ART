@@ -19,7 +19,7 @@ from openai.types.completion_usage import CompletionUsage
 import tinker
 import uvicorn
 
-from tinker_cookbook import renderers
+from tinker_cookbook_v import renderers
 
 
 @dataclass

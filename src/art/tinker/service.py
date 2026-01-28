@@ -13,7 +13,7 @@ from tinker.lib.public_interfaces.rest_client import RestClient as TinkerRestCli
 import torch
 import yaml
 
-from tinker_cookbook import renderers, tokenizer_utils
+from tinker_cookbook_v import renderers, tokenizer_utils
 
 from .. import dev, types
 from ..loss import loss_fn, shift_tensor

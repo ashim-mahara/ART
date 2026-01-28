@@ -75,7 +75,12 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/art", "src/mp_actors", "src/tinker_cookbook"]
+packages = [
+    "src/art",
+    "src/mp_actors",
+    "src/tinker_cookbook",
+    "src/tinker_cookbook_v",
+]
 
 [tool.hatch.build]
 sources = ["src"]
@@ -127,6 +132,7 @@ allowed-unresolved-imports = [
     # tinker deps
     "tinker.**",
     "tinker_cookbook.**",
+    "tinker_cookbook_v.**",
     # backend deps
     "accelerate.**",
     "awscli.**",
