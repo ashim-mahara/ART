@@ -11,7 +11,7 @@ import huggingface_hub
 import numpy as np
 from transformers import AutoConfig
 
-from tinker_cookbook.utils.misc_utils import not_none
+from .utils.misc_utils import not_none
 
 
 def _list_param_shapes_from_safetensors_remote(

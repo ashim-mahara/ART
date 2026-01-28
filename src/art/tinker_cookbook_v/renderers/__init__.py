@@ -5,10 +5,11 @@ Use viz_sft_dataset to visualize the output of different renderers. E.g.,
     python -m tinker_cookbook.supervised.viz_sft_dataset dataset_path=Tulu3Builder renderer_name=role_colon
 """
 
-from tinker_cookbook.image_processing_utils import ImageProcessor
+from ..image_processing_utils import ImageProcessor
+from ..tokenizer_utils import Tokenizer
 
 # Types and utilities used by external code
-from tinker_cookbook.renderers.base import (
+from .base import (
     # Content part types
     ContentPart,
     ImagePart,
@@ -30,10 +31,9 @@ from tinker_cookbook.renderers.base import (
 )
 
 # Renderer classes used directly by tests
-from tinker_cookbook.renderers.deepseek_v3 import DeepSeekV3ThinkingRenderer
-from tinker_cookbook.renderers.gpt_oss import GptOssRenderer
-from tinker_cookbook.renderers.qwen3 import Qwen3Renderer
-from tinker_cookbook.tokenizer_utils import Tokenizer
+from .deepseek_v3 import DeepSeekV3ThinkingRenderer
+from .gpt_oss import GptOssRenderer
+from .qwen3 import Qwen3Renderer
 
 
 def get_renderer(
@@ -69,17 +69,17 @@ def get_renderer(
         AssertionError: If a VL renderer is requested without an image_processor.
     """
     # Import renderer classes lazily to avoid circular imports and keep exports minimal
-    from tinker_cookbook.renderers.deepseek_v3 import DeepSeekV3DisableThinkingRenderer
-    from tinker_cookbook.renderers.gpt_oss import GptOssRenderer
-    from tinker_cookbook.renderers.kimi_k2 import KimiK2Renderer
-    from tinker_cookbook.renderers.llama3 import Llama3Renderer
-    from tinker_cookbook.renderers.qwen3 import (
+    from .deepseek_v3 import DeepSeekV3DisableThinkingRenderer
+    from .gpt_oss import GptOssRenderer
+    from .kimi_k2 import KimiK2Renderer
+    from .llama3 import Llama3Renderer
+    from .qwen3 import (
         Qwen3DisableThinkingRenderer,
         Qwen3InstructRenderer,
         Qwen3VLInstructRenderer,
         Qwen3VLRenderer,
     )
-    from tinker_cookbook.renderers.role_colon import RoleColonRenderer
+    from .role_colon import RoleColonRenderer
 
     if name == "role_colon":
         return RoleColonRenderer(tokenizer)

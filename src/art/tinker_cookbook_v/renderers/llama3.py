@@ -2,7 +2,7 @@
 
 import tinker
 
-from tinker_cookbook.renderers.base import (
+from .base import (
     Message,
     RenderContext,
     RenderedMessage,

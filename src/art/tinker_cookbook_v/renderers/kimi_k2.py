@@ -7,7 +7,7 @@ import warnings
 import tinker
 import torch
 
-from tinker_cookbook.renderers.base import (
+from .base import (
     Message,
     RenderContext,
     RenderedMessage,
@@ -198,180 +198,63 @@ class KimiK2Renderer(Renderer):
                     args = tool_call.function.arguments
                     output_str += f"<|tool_call_begin|>{tool_id}<|tool_call_argument_begin|>{args}<|tool_call_end|>"
                 output_str += "<|tool_calls_section_end|>"
+
+        elif role == "tool_declare":
+            # Tool declaration message: list tools with schema
+            output_lines = ["You have access to the following tools:"]
+            for tool in message.get("tools", []):
+                output_lines.append(f"\n{tool['name']}: {tool.get('description', '')}")
+                output_lines.append(json.dumps(tool["parameters"], ensure_ascii=False))
+            output_str = "\n".join(output_lines)
         else:
+            # System/user/tool messages use text content directly
             output_str = ensure_text(message["content"])
 
         output_str += "<|im_end|>"
 
-        header = tinker.types.EncodedTextChunk(tokens=self.tokenizer.encode(header_str))
-        output: list[tinker.ModelInputChunk] = [
-            tinker.types.EncodedTextChunk(tokens=self.tokenizer.encode(output_str))
-        ]
-        return RenderedMessage(header=header, output=output)
+        # Encode
+        header_tokens = self.tokenizer.encode(header_str, add_special_tokens=False)
+        output_tokens = self.tokenizer.encode(output_str, add_special_tokens=False)
 
-    def build_generation_prompt(
-        self,
-        messages: list[Message],
-        role: Role = "assistant",
-        prefill: str | None = None,
-    ) -> tinker.ModelInput:
-        messages = self._ensure_system_message(messages)
-        chunks: list[tinker.types.ModelInputChunk] = []
-
-        for idx, message in enumerate(messages):
-            # For generation prompt, no message is "last assistant" since we're generating new response
-            ctx = RenderContext(
-                idx=idx,
-                is_last=False,
-                prev_message=messages[idx - 1] if idx > 0 else None,
-            )
-            rendered_message = self.render_message(message, ctx)
-            header_chunk = rendered_message.header
-            output_chunks = rendered_message.output
-            if header_chunk:
-                chunks.append(header_chunk)
-            chunks.extend([x for x in output_chunks if x])
-
-        # Add generation prompt for new assistant message
-        gen_prompt = f"<|im_assistant|>{role}<|im_middle|>"
-        chunks.append(
-            tinker.types.EncodedTextChunk(tokens=self.tokenizer.encode(gen_prompt))
+        return RenderedMessage(
+            header=tinker.types.EncodedTextChunk(tokens=header_tokens),
+            output=[tinker.types.EncodedTextChunk(tokens=output_tokens)],
         )
-        if prefill:
-            chunks.append(
-                tinker.types.EncodedTextChunk(tokens=self.tokenizer.encode(prefill))
-            )
-        return tinker.ModelInput(chunks=chunks)
-
-    def build_supervised_example(
-        self,
-        messages: list[Message],
-        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
-    ) -> tuple[tinker.ModelInput, torch.Tensor]:
-        """
-        Override to properly handle thinking preservation for the last assistant message.
-        Also ensures default system message is prepended if none is present.
-        """
-        messages = self._ensure_system_message(messages)
-
-        # Find last non-tool-call assistant message index
-        last_assistant_idx = -1
-        for idx in range(len(messages) - 1, -1, -1):
-            if (
-                messages[idx]["role"] == "assistant"
-                and "tool_calls" not in messages[idx]
-            ):
-                last_assistant_idx = idx
-                break
-
-        model_input_chunks_weights: list[
-            tuple[tinker.types.ModelInputChunk, float]
-        ] = []
-
-        for idx, message in enumerate(messages):
-            if train_on_what == TrainOnWhat.CUSTOMIZED:
-                assert "trainable" in message, (
-                    "When using CUSTOMIZED train_on_what, each message must have a trainable field"
-                )
-            else:
-                assert "trainable" not in message, (
-                    "When using non-CUSTOMIZED train_on_what, each message must not have a trainable field"
-                )
-
-            is_last_message = idx == len(messages) - 1
-            is_assistant = message["role"] == "assistant"
-            is_user_or_system = message["role"] in ["user", "system"]
-
-            # For Kimi K2, preserve thinking only for the suffix after the last non-tool-call assistant.
-            is_last_assistant = (
-                is_assistant and last_assistant_idx != -1 and idx >= last_assistant_idx
-            )
-            ctx = RenderContext(
-                idx=idx,
-                is_last=is_last_assistant,
-                prev_message=messages[idx - 1] if idx > 0 else None,
-            )
-            rendered_message = self.render_message(message, ctx)
-
-            header_part = rendered_message.header
-            output_parts = rendered_message.output
-
-            header_weight = int(train_on_what == TrainOnWhat.ALL_TOKENS)
-            if header_part:
-                model_input_chunks_weights += [(header_part, header_weight)]
-
-            match train_on_what:
-                case TrainOnWhat.LAST_ASSISTANT_MESSAGE:
-                    output_has_weight = is_last_message and is_assistant
-                case TrainOnWhat.ALL_ASSISTANT_MESSAGES:
-                    output_has_weight = is_assistant
-                case TrainOnWhat.ALL_MESSAGES:
-                    output_has_weight = True
-                case TrainOnWhat.ALL_TOKENS:
-                    output_has_weight = True
-                case TrainOnWhat.ALL_USER_AND_SYSTEM_MESSAGES:
-                    output_has_weight = is_user_or_system
-                case TrainOnWhat.CUSTOMIZED:
-                    output_has_weight = message.get("trainable", False)
-                case _:
-                    raise ValueError(f"Unknown train_on_what: {train_on_what}")
-
-            model_input_chunks_weights += [
-                (output_part, int(output_has_weight))
-                for output_part in output_parts
-                if output_part
-            ]
-
-        weights_data = [
-            w for chunk, w in model_input_chunks_weights for _ in range(chunk.length)
-        ]
-        weights_tensor = torch.tensor(weights_data)
-
-        model_input_chunks = [chunk for chunk, _ in model_input_chunks_weights]
-        return tinker.ModelInput(chunks=model_input_chunks), weights_tensor
-
-    @property
-    def _end_message_token(self) -> int:
-        tokens = self.tokenizer.encode("<|im_end|>")
-        assert len(tokens) == 1, (
-            f"Expected single token for <|im_end|>, got {len(tokens)}"
-        )
-        return tokens[0]
-
-    def get_stop_sequences(self) -> list[int]:
-        return [self._end_message_token]
 
     def parse_response(self, response: list[int]) -> tuple[Message, bool]:
-        assistant_message, parse_success = parse_response_for_stop_token(
-            response, self.tokenizer, self._end_message_token
+        message, parse_success = parse_response_for_stop_token(
+            response, self.tokenizer, self._im_end_token
         )
         if not parse_success:
-            return assistant_message, False
+            return message, False
 
-        content = assistant_message["content"]
-        assert isinstance(content, str)
+        assert isinstance(message["content"], str)
+        content = message["content"]
 
-        # Handle tool calls if present
-        text_content, tool_section = _split_tool_calls_section(content)
+        # Split tool calls section (if present)
+        content, tool_section = _split_tool_calls_section(content)
+
+        # Parse tool calls
+        tool_calls: list[ToolCall] = []
+        unparsed_tool_calls: list[UnparsedToolCall] = []
         if tool_section is not None:
             tool_calls, unparsed_tool_calls = _parse_tool_calls_section(tool_section)
             if tool_calls:
-                assistant_message["tool_calls"] = tool_calls
+                message["tool_calls"] = tool_calls
             if unparsed_tool_calls:
-                assistant_message["unparsed_tool_calls"] = unparsed_tool_calls
+                message["unparsed_tool_calls"] = unparsed_tool_calls
 
-        content_parts = parse_think_blocks(text_content)
-        assistant_message["content"] = (
-            content_parts if content_parts is not None else text_content
-        )
+        # Strip <think> blocks and parse structured content
+        parts = parse_think_blocks(content)
+        if parts is not None:
+            message["content"] = parts
+        else:
+            message["content"] = content
 
-        return assistant_message, True
+        return message, True
 
     def to_openai_message(self, message: Message) -> dict:
-        """Convert a Message to OpenAI API format with reasoning_content for thinking.
-
-        Kimi K2's HF template explicitly expects reasoning_content as a separate field.
-        """
+        """Convert a Message to OpenAI API format."""
         result: dict = {"role": message["role"]}
 
         content = message["content"]
@@ -417,31 +300,36 @@ class KimiK2Renderer(Renderer):
     def create_conversation_prefix_with_tools(
         self, tools: list[ToolSpec], system_prompt: str = ""
     ) -> list[Message]:
-        """Create system messages with Kimi K2 tool specifications.
-
-        Per the HuggingFace chat template, Kimi K2 places the tool_declare message
-        BEFORE the regular system message. The tool_declare payload expects the
-        OpenAI-style tool schema ({"type":"function","function":{...}}).
-        If no system_prompt is provided, uses the default system prompt to match
-        HuggingFace chat template behavior.
-
-        Reference: https://huggingface.co/moonshotai/Kimi-K2-Thinking/blob/main/chat_template.jinja
-        """
+        """Create tool declaration + optional system message."""
         messages: list[Message] = []
-
-        # Tool declaration message comes first (per HF chat template)
         if tools:
-            tools_payload = [{"type": "function", "function": tool} for tool in tools]
-            # Use sort_keys=True since Kimi K2 sorts keys alphabetically with its own custom apply_chat_template function
-            tools_json = json.dumps(
-                tools_payload, separators=(",", ":"), sort_keys=True
+            messages.append(
+                Message(
+                    role="tool_declare",
+                    content="",
+                    tools=tools,  # type: ignore[typeddict-unknown-key]
+                )
             )
-            messages.append(Message(role="tool_declare", content=tools_json))
-
-        # Regular system message second (use default if none provided)
-        actual_system_prompt = (
-            system_prompt if system_prompt else self.DEFAULT_SYSTEM_PROMPT
-        )
-        messages.append(Message(role="system", content=actual_system_prompt))
-
+        if system_prompt:
+            messages.append(Message(role="system", content=system_prompt))
         return messages
+
+    @property
+    def _im_end_token(self) -> int:
+        tokens = self.tokenizer.encode("<|im_end|>", add_special_tokens=False)
+        assert len(tokens) == 1
+        return tokens[0]
+
+    def get_stop_sequences(self) -> list[int]:
+        return [self._im_end_token]
+
+    def build_supervised_example(
+        self,
+        messages: list[Message],
+        train_on_what: TrainOnWhat = TrainOnWhat.LAST_ASSISTANT_MESSAGE,
+    ) -> tuple[tinker.ModelInput, torch.Tensor]:
+        """
+        Override to ensure default system prompt behavior aligns with HF template.
+        """
+        messages = self._ensure_system_message(messages)
+        return super().build_supervised_example(messages, train_on_what)

@@ -14,8 +14,9 @@ from typing import cast
 
 import tinker
 
-from tinker_cookbook.image_processing_utils import ImageProcessor
-from tinker_cookbook.renderers.base import (
+from ..image_processing_utils import ImageProcessor
+from ..tokenizer_utils import Tokenizer
+from .base import (
     ImagePart,
     ImageProcessorProtocol,
     Message,
@@ -31,7 +32,6 @@ from tinker_cookbook.renderers.base import (
     parse_response_for_stop_token,
     remove_thinking,
 )
-from tinker_cookbook.tokenizer_utils import Tokenizer
 
 
 def _merge_consecutive_text_parts(

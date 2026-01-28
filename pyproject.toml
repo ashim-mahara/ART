@@ -78,8 +78,6 @@ allow-direct-references = true
 packages = [
     "src/art",
     "src/mp_actors",
-    "src/tinker_cookbook",
-    "src/tinker_cookbook_v",
 ]
 
 [tool.hatch.build]
@@ -131,8 +129,6 @@ unused-ignore-comment = "ignore"
 allowed-unresolved-imports = [
     # tinker deps
     "tinker.**",
-    "tinker_cookbook.**",
-    "tinker_cookbook_v.**",
     # backend deps
     "accelerate.**",
     "awscli.**",

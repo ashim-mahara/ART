@@ -11,7 +11,8 @@ import re
 
 import tinker
 
-from tinker_cookbook.renderers.base import (
+from ..tokenizer_utils import Tokenizer
+from .base import (
     Message,
     RenderContext,
     RenderedMessage,
@@ -23,7 +24,6 @@ from tinker_cookbook.renderers.base import (
     parse_response_for_stop_token,
     parse_think_blocks,
 )
-from tinker_cookbook.tokenizer_utils import Tokenizer
 
 
 class _DeepSeekV3BaseRenderer(Renderer):
