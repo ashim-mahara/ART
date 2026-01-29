@@ -658,12 +658,19 @@ class LocalBackend(Backend):
 
         # Determine learning rates
         learning_rates: list[float]
+        num_batches = math.ceil(len(trajectory_list) / batch_size)
         if isinstance(config.learning_rate, list):
             # Per-batch learning rates provided
             learning_rates = config.learning_rate
+            # Validate count matches expected batches
+            if len(learning_rates) != num_batches:
+                raise ValueError(
+                    f"Number of learning rates ({len(learning_rates)}) does not match "
+                    f"number of batches ({num_batches}). With {len(trajectory_list)} "
+                    f"trajectories and batch_size={batch_size}, expected {num_batches} learning rates."
+                )
         else:
             # Single value - create constant list for all batches
-            num_batches = math.ceil(len(trajectory_list) / batch_size)
             learning_rates = [config.learning_rate] * num_batches
 
         # Tokenize trajectories into batches

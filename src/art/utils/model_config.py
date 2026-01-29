@@ -44,22 +44,22 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
         instruction_part="<|im_start|>user\n",
         response_part="<|im_start|>assistant\n",
     ),
-    # Qwen 3 models (with thinking tokens)
+    # Qwen 3 models
     "Qwen/Qwen3-8B": ModelConfig(
         instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n<think>\n\n</think>\n\n",
+        response_part="<|im_start|>assistant\n",
     ),
     "Qwen/Qwen3-14B": ModelConfig(
         instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n<think>\n\n</think>\n\n",
+        response_part="<|im_start|>assistant\n",
     ),
     "Qwen/Qwen3-32B": ModelConfig(
         instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n<think>\n\n</think>\n\n",
+        response_part="<|im_start|>assistant\n",
     ),
     "OpenPipe/Qwen3-14B-Instruct": ModelConfig(
         instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n<think>\n\n</think>\n\n",
+        response_part="<|im_start|>assistant\n",
     ),
     "Qwen/Qwen3-30B-A3B-Instruct-2507": ModelConfig(
         instruction_part="<|im_start|>user\n",
