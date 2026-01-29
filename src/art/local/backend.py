@@ -4,7 +4,7 @@ import math
 import os
 import subprocess
 from types import TracebackType
-from typing import AsyncIterator, Iterable, Literal, cast
+from typing import TYPE_CHECKING, AsyncIterator, Iterable, Literal, cast
 import warnings
 
 import aiohttp
@@ -15,6 +15,14 @@ from tqdm import auto as tqdm
 from transformers import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from typing_extensions import Self
+
+if TYPE_CHECKING:
+    from transformers.image_processing_utils import BaseImageProcessor
+else:
+
+    class BaseImageProcessor:
+        pass
+
 
 from art.utils.output_dirs import (
     get_default_art_path,
@@ -68,7 +76,7 @@ class LocalBackend(Backend):
         # Other initialization
         self._services: dict[str, ModelService] = {}
         self._tokenizers: dict[str, PreTrainedTokenizerBase] = {}
-        self._image_processors: dict[str, object | None] = {}
+        self._image_processors: dict[str, BaseImageProcessor | None] = {}
 
     def __enter__(self) -> Self:
         return self
