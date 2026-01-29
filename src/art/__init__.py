@@ -54,11 +54,7 @@ from .auto_trajectory import auto_trajectory, capture_auto_trajectory
 from .backend import Backend
 from .batches import trajectory_group_batches
 from .gather import gather_trajectories, gather_trajectory_groups
-
-try:
-    from .local import LocalBackend
-except Exception:
-    LocalBackend = None  # type: ignore[assignment]
+from .local import LocalBackend
 from .model import Model, TrainableModel
 from .serverless import ServerlessBackend
 from .trajectories import Trajectory, TrajectoryGroup
@@ -99,6 +95,3 @@ __all__ = [
     "capture_yielded_trajectory",
     "yield_trajectory",
 ]
-
-if LocalBackend is None:
-    __all__.remove("LocalBackend")

@@ -4,7 +4,7 @@ import math
 import os
 import subprocess
 from types import TracebackType
-from typing import TYPE_CHECKING, AsyncIterator, Iterable, Literal, cast
+from typing import AsyncIterator, Iterable, Literal, cast
 import warnings
 
 import aiohttp
@@ -12,17 +12,10 @@ import numpy as np
 from openai import AsyncOpenAI
 import torch
 from tqdm import auto as tqdm
-from transformers import AutoTokenizer
+from transformers import AutoImageProcessor, AutoTokenizer
+from transformers.image_processing_utils import BaseImageProcessor
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from typing_extensions import Self
-
-if TYPE_CHECKING:
-    from transformers.image_processing_utils import BaseImageProcessor
-else:
-
-    class BaseImageProcessor:
-        pass
-
 
 from art.utils.output_dirs import (
     get_default_art_path,
@@ -194,20 +187,11 @@ class LocalBackend(Backend):
             )
         if model.base_model not in self._image_processors:
             try:
-                from transformers import AutoImageProcessor
+                self._image_processors[model.base_model] = (
+                    AutoImageProcessor.from_pretrained(model.base_model, use_fast=True)
+                )
             except Exception:
-                AutoImageProcessor = None  # type: ignore[assignment]
-            if AutoImageProcessor is None:
                 self._image_processors[model.base_model] = None
-            else:
-                try:
-                    self._image_processors[model.base_model] = (
-                        AutoImageProcessor.from_pretrained(
-                            model.base_model, use_fast=True
-                        )
-                    )
-                except Exception:
-                    self._image_processors[model.base_model] = None
         tokenizer = self._tokenizers[model.base_model]
         tokenized_results = list(
             tokenize_trajectory_groups(
