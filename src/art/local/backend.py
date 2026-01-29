@@ -12,8 +12,7 @@ import numpy as np
 from openai import AsyncOpenAI
 import torch
 from tqdm import auto as tqdm
-from transformers import AutoImageProcessor, AutoTokenizer
-from transformers.image_processing_utils import BaseImageProcessor
+from transformers import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from typing_extensions import Self
 
@@ -69,7 +68,7 @@ class LocalBackend(Backend):
         # Other initialization
         self._services: dict[str, ModelService] = {}
         self._tokenizers: dict[str, PreTrainedTokenizerBase] = {}
-        self._image_processors: dict[str, BaseImageProcessor | None] = {}
+        self._image_processors: dict[str, object | None] = {}
 
     def __enter__(self) -> Self:
         return self
@@ -187,11 +186,20 @@ class LocalBackend(Backend):
             )
         if model.base_model not in self._image_processors:
             try:
-                self._image_processors[model.base_model] = (
-                    AutoImageProcessor.from_pretrained(model.base_model, use_fast=True)
-                )
+                from transformers import AutoImageProcessor
             except Exception:
+                AutoImageProcessor = None  # type: ignore[assignment]
+            if AutoImageProcessor is None:
                 self._image_processors[model.base_model] = None
+            else:
+                try:
+                    self._image_processors[model.base_model] = (
+                        AutoImageProcessor.from_pretrained(
+                            model.base_model, use_fast=True
+                        )
+                    )
+                except Exception:
+                    self._image_processors[model.base_model] = None
         tokenizer = self._tokenizers[model.base_model]
         tokenized_results = list(
             tokenize_trajectory_groups(

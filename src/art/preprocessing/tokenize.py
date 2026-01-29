@@ -8,7 +8,11 @@ from typing import Any, Generator, cast
 
 import torch
 from PIL import Image
-from transformers.image_processing_utils import BaseImageProcessor
+
+try:
+    from transformers.image_processing_utils import BaseImageProcessor
+except Exception:
+    BaseImageProcessor = object  # type: ignore[assignment]
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from ..trajectories import History, Trajectory, TrajectoryGroup, get_messages
