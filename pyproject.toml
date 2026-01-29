@@ -132,6 +132,8 @@ allowed-unresolved-imports = [
     "accelerate.**",
     "awscli.**",
     "bitsandbytes.**",
+    "cloudpickle.**",
+    "datasets.**",
     "duckdb.**",
     "fastapi.**",
     "gql.**",

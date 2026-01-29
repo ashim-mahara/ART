@@ -308,7 +308,7 @@ class TrajectoryGroup(pydantic.BaseModel):
                     return self.coro.__await__()
 
             coro = _(exceptions.copy(), metadata, metrics, logs)
-            return CoroutineWithMetadata(coro, len(ts))
+            return CoroutineWithMetadata(coro, len(ts))  # type: ignore[return-value]
         else:
             group = super().__new__(cls)
             group.__init__(
