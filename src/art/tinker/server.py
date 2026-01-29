@@ -133,9 +133,9 @@ class OpenAICompatibleTinkerServer:
             choices: list[Choice] = []
             for i, sequence in enumerate(sample_response.sequences):
                 assert sequence.logprobs is not None, "Logprobs are required"
-                assert len(sequence.tokens) == len(
-                    sequence.logprobs
-                ), "Tokens and logprobs must have the same length"
+                assert len(sequence.tokens) == len(sequence.logprobs), (
+                    "Tokens and logprobs must have the same length"
+                )
                 rendered_response_tokens = renderer.tokenizer.encode(
                     renderer.tokenizer.decode(sequence.tokens)
                 )
