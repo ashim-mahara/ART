@@ -57,7 +57,7 @@ def precalculate_new_logprobs(
         [
             trainer.compute_loss(
                 peft_model,
-                TrainInputs(
+                TrainInputs(  # ty:ignore[missing-typed-dict-key]
                     **{
                         k: v[_offset : _offset + 1]
                         for k, v in packed_tensors.items()
@@ -70,7 +70,7 @@ def precalculate_new_logprobs(
                     config=config,
                     _config=_config,
                     return_new_logprobs=True,
-                ),  # type: ignore
+                ),
             )
             for _offset in range(0, packed_tensors["tokens"].shape[0])
         ]
@@ -270,7 +270,9 @@ class UnslothService:
         self._lora_id_counter += 1
         return self._lora_id_counter
 
-    async def start_openai_server(self, config: dev.OpenAIServerConfig | None) -> None:
+    async def start_openai_server(
+        self, config: dev.OpenAIServerConfig | None
+    ) -> tuple[str, int]:
         lora_path = get_last_checkpoint_dir(self.output_dir)
         if lora_path is None:
             # Create initial LoRA checkpoint if none exists
@@ -296,6 +298,9 @@ class UnslothService:
             engine=await self.llm,
             config=server_config,
         )
+        return server_config.get("server_args", {}).get(
+            "host"
+        ) or "0.0.0.0", server_config.get("server_args", {}).get("port", 8000)
 
     async def vllm_engine_is_sleeping(self) -> bool:
         return self._is_sleeping
@@ -668,7 +673,7 @@ class UnslothService:
         trainer = GRPOTrainer(
             model=peft_model,  # type: ignore
             reward_funcs=[],
-            args=GRPOConfig(**self.config.get("trainer_args", {})),  # type: ignore
+            args=GRPOConfig(**self.config.get("trainer_args", {})),
             train_dataset=Dataset.from_list([data for _ in range(10_000_000)]),
             processing_class=tokenizer,
         )
@@ -710,7 +715,7 @@ class UnslothService:
         # Remove boolean flags that vLLM's argparse doesn't accept as =False
         for key in ["enable_log_requests", "disable_log_requests"]:
             engine_args.pop(key, None)
-        return asyncio.create_task(get_llm(AsyncEngineArgs(**engine_args)))
+        return asyncio.create_task(get_llm(AsyncEngineArgs(**engine_args)))  # ty:ignore[invalid-argument-type]
 
 
 # ============================================================================
@@ -773,7 +778,7 @@ def do_sleep(*, level: int) -> None:
                 pin_memory=is_pin_memory_available(),
             )
             cpu_ptr = cpu_backup_tensor.data_ptr()
-            libcudart.cudaMemcpy(
+            libcudart.cudaMemcpy(  # ty:ignore[possibly-missing-attribute]
                 ctypes.c_void_p(cpu_ptr), ctypes.c_void_p(ptr), size_in_bytes
             )
             data.cpu_backup_tensor = cpu_backup_tensor
@@ -809,7 +814,7 @@ def do_wake_up() -> None:
             cpu_backup_tensor = data.cpu_backup_tensor
             size_in_bytes = cpu_backup_tensor.numel() * cpu_backup_tensor.element_size()
             cpu_ptr = cpu_backup_tensor.data_ptr()
-            libcudart.cudaMemcpy(
+            libcudart.cudaMemcpy(  # ty:ignore[possibly-missing-attribute]
                 ctypes.c_void_p(ptr),
                 ctypes.c_void_p(cpu_ptr),
                 size_in_bytes,

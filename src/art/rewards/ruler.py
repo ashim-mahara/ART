@@ -55,6 +55,7 @@ async def ruler(
     judge_model: str = "openai/o3",
     extra_litellm_params: dict | None = None,
     rubric: str = DEFAULT_RUBRIC,
+    tools: list | None = None,
     *,
     debug: bool = False,
 ) -> list[TrajectoryScore]:
@@ -81,6 +82,8 @@ async def ruler(
         extra_litellm_params: Additional parameters to pass to LiteLLM completion.
             Can include temperature, max_tokens, etc.
         rubric: The grading rubric. The default rubric works well for most tasks.
+        tools: Optional list of tool definitions available to the agent. When provided,
+            the judge will see which tools were available when evaluating tool usage.
         debug: If True, pretty-print the judge's reasoning to help understand scores.
 
     Returns:
@@ -137,6 +140,12 @@ async def ruler(
             "<context>\n" + json.dumps(common_prefix_messages) + "\n</context>\n\n"
         )
 
+    # Include available tools so the judge knows which tool calls are valid
+    if tools:
+        user_text += (
+            "<available_tools>\n" + json.dumps(tools) + "\n</available_tools>\n\n"
+        )
+
     # Serialize each trajectory (minus the common prefix) for the judge.
     # If all trajectories are identical, only serialize one full trajectory to save tokens.
     serialized_trajectories: List[str] = []
@@ -186,7 +195,7 @@ async def ruler(
     first_choice = response.choices[0]
 
     if debug:
-        raw_content = first_choice.message.content or "{}"  # type: ignore[attr-defined]
+        raw_content = first_choice.message.content or "{}"
         try:
             print("\n[RULER] Pretty-printed LLM choice JSON:")
             print(json.loads(raw_content))
@@ -194,7 +203,7 @@ async def ruler(
             print(f"[RULER] Could not parse choice content as JSON: {e}")
             print(f"[RULER] Raw choice content: {raw_content}")
 
-    content = first_choice.message.content or "{}"  # type: ignore[attr-defined]
+    content = first_choice.message.content or "{}"
     parsed = Response.model_validate_json(content)
 
     # If all trajectories were identical, we only sent one to the judge
@@ -292,6 +301,9 @@ async def ruler_score_group(
         message_lists.append(traj.messages())
         traj.metrics["independent_reward"] = traj.reward
 
+    # Extract tools from first trajectory (they should all be the same)
+    tools = new_trajectories[0].tools if new_trajectories else None
+
     try:
         # Call the core ruler function to get scores
         scores = await ruler(
@@ -299,6 +311,7 @@ async def ruler_score_group(
             judge_model=judge_model,
             extra_litellm_params=extra_litellm_params,
             rubric=rubric,
+            tools=tools,
             debug=debug,
         )
     except Exception as e:

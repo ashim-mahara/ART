@@ -103,6 +103,8 @@ class LocalBackend(Backend):
         Args:
             model: An art.Model instance.
         """
+        # Ensure model state/logging uses the backend path
+        model.base_path = self._path
         output_dir = get_model_dir(model=model, art_path=self._path)
         os.makedirs(output_dir, exist_ok=True)
         with open(f"{output_dir}/model.json", "w") as f:
@@ -129,9 +131,10 @@ class LocalBackend(Backend):
             step: If provided, returns name for specific checkpoint.
                   If None, returns name for latest checkpoint (step 0 initially).
         """
+
         # For LocalBackend, vLLM always serves LoRA adapters with @step suffix
         # Default to step 0 when not specified (the initial checkpoint created at registration)
-        actual_step = step if step is not None else 0
+        actual_step = step if step is not None else self.__get_step(model)
         return f"{model.name}@{actual_step}"
 
     async def _get_service(self, model: TrainableModel) -> ModelService:
@@ -172,7 +175,7 @@ class LocalBackend(Backend):
 
     def _get_packed_tensors(
         self,
-        model: TrainableModel,
+        model: AnyTrainableModel,
         trajectory_groups: list[TrajectoryGroup],
         advantage_balance: float,
         allow_training_without_logprobs: bool,
@@ -215,7 +218,7 @@ class LocalBackend(Backend):
         packed_tensors = packed_tensors_from_tokenized_results(
             tokenized_results,
             sequence_length,
-            pad_token_id=tokenizer.eos_token_id,  # type: ignore
+            pad_token_id=tokenizer.eos_token_id,
             advantage_balance=advantage_balance,
         )
         if (
@@ -236,7 +239,7 @@ class LocalBackend(Backend):
             )
         return packed_tensors
 
-    async def _get_step(self, model: TrainableModel) -> int:
+    async def _get_step(self, model: AnyTrainableModel) -> int:
         return self.__get_step(model)
 
     def __get_step(self, model: Model) -> int:
@@ -248,7 +251,7 @@ class LocalBackend(Backend):
 
     async def _delete_checkpoint_files(
         self,
-        model: TrainableModel,
+        model: AnyTrainableModel,
         steps_to_keep: list[int],
     ) -> None:
         """Delete checkpoint files, keeping only the specified steps."""
@@ -263,15 +266,16 @@ class LocalBackend(Backend):
 
     async def _prepare_backend_for_training(
         self,
-        model: TrainableModel,
+        model: AnyTrainableModel,
         config: dev.OpenAIServerConfig | None = None,
     ) -> tuple[str, str]:
         service = await self._get_service(model)
-        await service.start_openai_server(config=config)
-        server_args = (config or {}).get("server_args", {})
+        host, port = await service.start_openai_server(config=config)
 
-        base_url = f"http://{server_args.get('host', '0.0.0.0')}:{server_args.get('port', 8000)}/v1"
-        api_key = server_args.get("api_key", None) or "default"
+        base_url = f"http://{host}:{port}/v1"
+        api_key = (config or {}).get("server_args", {}).get(
+            "api_key", None
+        ) or "default"
 
         def done_callback(_: asyncio.Task[None]) -> None:
             close_proxy(self._services.pop(model.name))
@@ -358,13 +362,13 @@ class LocalBackend(Backend):
             if isinstance(message_or_choice, dict):
                 message = message_or_choice
             else:
-                message = cast(Message, message_or_choice.message.model_dump())
+                message = cast(Message, message_or_choice.message.model_dump())  # ty:ignore[possibly-missing-attribute]
             formatted_messages.append(format_message(message))
         return header + "\n".join(formatted_messages)
 
     async def train(  # type: ignore[override]
         self,
-        model: TrainableModel,
+        model: AnyTrainableModel,
         trajectory_groups: Iterable[TrajectoryGroup],
         *,
         # Core training parameters
@@ -573,12 +577,17 @@ class LocalBackend(Backend):
                     f"Advanced step from {current_step} to {next_step} (no training occurred)"
                 )
 
-                # Register the renamed checkpoint as a new LoRA adapter
-                # so it's available for inference at the new step
-                from ..unsloth.service import UnslothService
+                try:
+                    # Register the renamed checkpoint as a new LoRA adapter
+                    # so it's available for inference at the new step
+                    from ..unsloth.service import UnslothService
 
-                if isinstance(service, UnslothService):
-                    await service.register_lora_for_step(next_step, next_checkpoint_dir)
+                    if isinstance(service, UnslothService):
+                        await service.register_lora_for_step(
+                            next_step, next_checkpoint_dir
+                        )
+                except ModuleNotFoundError:
+                    pass  # Unsloth is not installed
 
             # Yield metrics showing no groups were trainable
             # (the frontend will handle logging)

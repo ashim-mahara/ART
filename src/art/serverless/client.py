@@ -141,7 +141,7 @@ class Models(AsyncAPIResource):
 
     @cached_property
     def checkpoints(self) -> "Checkpoints":
-        return Checkpoints(cast(AsyncOpenAI, self._client))
+        return Checkpoints(cast(AsyncOpenAI, self._client))  # ty:ignore[redundant-cast]
 
 
 class Checkpoints(AsyncAPIResource):
@@ -202,7 +202,7 @@ class TrainingJobs(AsyncAPIResource):
 
     @cached_property
     def events(self) -> "TrainingJobEvents":
-        return TrainingJobEvents(cast(AsyncOpenAI, self._client))
+        return TrainingJobEvents(cast(AsyncOpenAI, self._client))  # ty:ignore[redundant-cast]
 
 
 class TrainingJobEvents(AsyncAPIResource):
@@ -273,7 +273,7 @@ class Client(AsyncAPIClient):
         )
 
     @override
-    async def request(  # type: ignore[reportIncompatibleMethodOverride]
+    async def request(
         self,
         cast_to: Type[ResponseT],
         options: FinalRequestOptions,
