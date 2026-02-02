@@ -42,7 +42,7 @@ from ..preprocessing.pack import (
 )
 from ..preprocessing.tokenize import tokenize_trajectory_groups
 from ..trajectories import Trajectory, TrajectoryGroup
-from ..types import LocalTrainResult, Message, SFTConfig, TrainConfig
+from ..types import LocalTrainResult, Message, SFTTrainConfig, TrainConfig
 from ..utils import format_message, get_model_step
 from .checkpoints import (
     delete_checkpoints,
@@ -626,8 +626,8 @@ class LocalBackend(Backend):
         self,
         model: AnyTrainableModel,
         trajectories: Iterable[Trajectory],
-        config: SFTConfig,
-        dev_config: dev.SFTConfig,
+        config: SFTTrainConfig,
+        dev_config: dev.SFTTrainConfig,
         verbose: bool = False,
     ) -> AsyncIterator[dict[str, float]]:
         """Train the model using supervised fine-tuning.

@@ -57,7 +57,7 @@ async def main():
     print("\n[Phase 1] SFT training...")
     await model.train_sft(
         SFT_TRAJECTORIES,
-        config=art.SFTConfig(learning_rate=1e-6, batch_size=1),
+        config=art.SFTTrainConfig(learning_rate=1e-6, batch_size=1),
     )
     print("SFT phase 1 complete.")
 
@@ -86,7 +86,7 @@ async def main():
     print("\n[Phase 3] SFT training again...")
     await model.train_sft(
         SFT_TRAJECTORIES,
-        config=art.SFTConfig(batch_size=1, learning_rate=1e-6),
+        config=art.SFTTrainConfig(batch_size=1, learning_rate=1e-6),
     )
     print("SFT phase 3 complete.")
 

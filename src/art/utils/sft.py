@@ -6,7 +6,7 @@ import random
 from typing import TYPE_CHECKING, Generator, List, Literal
 
 if TYPE_CHECKING:
-    from art.dev import SFTConfig as DevSFTConfig
+    from art.dev import SFTTrainConfig as DevSFTTrainConfig
     from art.model import TrainableModel
     from art.trajectories import Trajectory
 
@@ -288,12 +288,12 @@ async def train_sft_from_file(
     model: "TrainableModel",
     file_path: str,
     epochs: int = 1,
-    batch_size: int = 1,
+    batch_size: int = 2,
     peak_lr: float = 2e-4,
     schedule_type: Literal["cosine", "linear", "constant"] = "linear",
     warmup_ratio: float = 0.1,
     initial_step: int = 0,
-    _config: "DevSFTConfig | None" = None,
+    _config: "DevSFTTrainConfig | None" = None,
     verbose: bool = False,
 ) -> None:
     """
@@ -354,7 +354,7 @@ async def train_sft_from_file(
                 warmup_ratio=0.1,
             )
     """
-    from art.types import SFTConfig
+    from art.types import SFTTrainConfig
 
     # Load all trajectories into memory
     trajectories = list(iterate_file(file_path, shuffle=False))
@@ -385,7 +385,7 @@ async def train_sft_from_file(
         print(f"Learning rate schedule: {schedule_type}, peak_lr: {peak_lr}")
 
     # Create config with per-batch learning rates
-    config = SFTConfig(
+    config = SFTTrainConfig(
         learning_rate=learning_rates,
         batch_size=batch_size,
     )

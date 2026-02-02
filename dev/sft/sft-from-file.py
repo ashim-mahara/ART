@@ -10,7 +10,7 @@ from art.utils.sft import train_sft_from_file
 async def main():
     backend = LocalBackend()
     model = art.TrainableModel(
-        name="run-001",
+        name="run-002",
         project="sft-from-file",
         base_model="Qwen/Qwen2.5-7B-Instruct",
     )

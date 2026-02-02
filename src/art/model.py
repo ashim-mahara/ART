@@ -12,7 +12,7 @@ from typing_extensions import Never, TypeVar
 
 from . import dev
 from .trajectories import Trajectory, TrajectoryGroup
-from .types import SFTConfig, TrainConfig
+from .types import SFTTrainConfig, TrainConfig
 from .utils.old_benchmarking.calculate_step_metrics import calculate_step_std_dev
 from .utils.trajectory_logging import write_trajectory_groups_parquet
 
@@ -737,8 +737,8 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
     async def train_sft(
         self,
         trajectories: Iterable[Trajectory],
-        config: SFTConfig | None = None,
-        _config: dev.SFTConfig | None = None,
+        config: SFTTrainConfig | None = None,
+        _config: dev.SFTTrainConfig | None = None,
         verbose: bool = False,
     ) -> None:
         """
@@ -747,13 +747,13 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
         Args:
             trajectories: An iterable of Trajectory objects.
             config: SFT configuration including learning_rates and batch_size.
-                If None, uses default SFTConfig().
+                If None, uses default SFTTrainConfig().
             _config: Additional experimental configuration that is subject to change and
                 not yet part of the public API. Use at your own risk.
             verbose: Whether to print verbose output.
         """
         if config is None:
-            config = SFTConfig()
+            config = SFTTrainConfig()
 
         # Train (backend yields metrics for each batch without logging)
         # Collect all metrics and aggregate them at the end (same as RL)
