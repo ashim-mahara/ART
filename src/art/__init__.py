@@ -63,10 +63,10 @@ from .types import (
     Messages,
     MessagesAndChoices,
     ServerlessTrainResult,
-    SFTTrainConfig,
     Tools,
     TrainConfig,
     TrainResult,
+    TrainSFTConfig,
 )
 from .utils import retry
 from .yield_trajectory import capture_yielded_trajectory, yield_trajectory
@@ -89,7 +89,7 @@ __all__ = [
     "Model",
     "TrainableModel",
     "retry",
-    "SFTTrainConfig",
+    "TrainSFTConfig",
     "TrainConfig",
     "TrainResult",
     "Trajectory",

@@ -59,7 +59,7 @@ async def main():
     print(f"Training student model ({STUDENT_BASE_MODEL})...")
     await student.train_sft(
         trajectories,
-        config=art.SFTTrainConfig(learning_rate=2e-4),
+        config=art.TrainSFTConfig(learning_rate=2e-4),
         verbose=True,
     )
     print("Training complete!")

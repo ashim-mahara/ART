@@ -1,135 +1,27 @@
 """Model-specific configuration for chat templates and training defaults."""
 
-from dataclasses import dataclass
-from typing import Optional
-
-
-@dataclass
-class ModelConfig:
-    """Configuration for a specific model's chat template."""
-
-    instruction_part: str
-    response_part: str
-
-
-# Model identifier -> configuration mapping
-# These define the chat template markers used for "train on responses only"
-MODEL_CONFIGS: dict[str, ModelConfig] = {
-    # Qwen 2.5 models (ChatML format)
-    "Qwen/Qwen2.5-0.5B-Instruct": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    "Qwen/Qwen2.5-1.5B-Instruct": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    "Qwen/Qwen2.5-3B-Instruct": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    "Qwen/Qwen2.5-7B-Instruct": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    "Qwen/Qwen2.5-14B-Instruct": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    "Qwen/Qwen2.5-32B-Instruct": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    "Qwen/Qwen2.5-72B-Instruct": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    # Qwen 3 models
-    "Qwen/Qwen3-8B": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    "Qwen/Qwen3-14B": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    "Qwen/Qwen3-32B": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    "OpenPipe/Qwen3-14B-Instruct": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    "Qwen/Qwen3-30B-A3B-Instruct-2507": ModelConfig(
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    ),
-    # Llama 3 models
-    "meta-llama/Llama-3.1-8B-Instruct": ModelConfig(
-        instruction_part="<|start_header_id|>user<|end_header_id|>\n\n",
-        response_part="<|start_header_id|>assistant<|end_header_id|>\n\n",
-    ),
-    "meta-llama/Llama-3.1-70B-Instruct": ModelConfig(
-        instruction_part="<|start_header_id|>user<|end_header_id|>\n\n",
-        response_part="<|start_header_id|>assistant<|end_header_id|>\n\n",
-    ),
-    "meta-llama/Llama-3.2-1B-Instruct": ModelConfig(
-        instruction_part="<|start_header_id|>user<|end_header_id|>\n\n",
-        response_part="<|start_header_id|>assistant<|end_header_id|>\n\n",
-    ),
-    "meta-llama/Llama-3.2-3B-Instruct": ModelConfig(
-        instruction_part="<|start_header_id|>user<|end_header_id|>\n\n",
-        response_part="<|start_header_id|>assistant<|end_header_id|>\n\n",
-    ),
-    # Gemma models
-    "google/gemma-2-2b-it": ModelConfig(
-        instruction_part="<start_of_turn>user\n",
-        response_part="<start_of_turn>model\n",
-    ),
-    "google/gemma-2-9b-it": ModelConfig(
-        instruction_part="<start_of_turn>user\n",
-        response_part="<start_of_turn>model\n",
-    ),
-    "google/gemma-2-27b-it": ModelConfig(
-        instruction_part="<start_of_turn>user\n",
-        response_part="<start_of_turn>model\n",
-    ),
-}
-
-
-def get_model_config(model_id: str) -> Optional[ModelConfig]:
-    """Get the configuration for a given model.
-
-    Args:
-        model_id: The model identifier (e.g., "Qwen/Qwen2.5-7B-Instruct")
-
-    Returns:
-        ModelConfig if found, None otherwise
-    """
-    return MODEL_CONFIGS.get(model_id)
-
 
 def detect_chat_template_parts(
-    tokenizer_or_template: object,
+    tokenizer: object,
 ) -> tuple[str, str]:
-    """Detect instruction and response parts from a chat template string.
-
-    This is a fallback when the model is not in MODEL_CONFIGS.
+    """Detect instruction and response parts from a tokenizer's chat template.
 
     Args:
-        tokenizer_or_template: Either a tokenizer with chat_template attr,
-                              or the chat template string directly
+        tokenizer: A tokenizer with a chat_template attribute
 
     Returns:
         Tuple of (instruction_part, response_part)
+
+    Raises:
+        ValueError: If the tokenizer has no chat_template or the format is unrecognized
     """
-    if hasattr(tokenizer_or_template, "chat_template"):
-        template: str = getattr(tokenizer_or_template, "chat_template", "") or ""
-    elif isinstance(tokenizer_or_template, str):
-        template = tokenizer_or_template
-    else:
-        template = ""
+    if not hasattr(tokenizer, "chat_template") or not tokenizer.chat_template:
+        raise ValueError(
+            "Cannot detect chat template parts: tokenizer has no chat_template attribute. "
+            "Please specify instruction_part and response_part manually."
+        )
+
+    template: str = tokenizer.chat_template
 
     # ChatML format (Qwen, etc.)
     if "<|im_start|>" in template:
@@ -150,33 +42,30 @@ def detect_chat_template_parts(
     if "[INST]" in template:
         return "[INST]", "[/INST]"
 
-    # Default fallback to ChatML (most common)
-    return "<|im_start|>user\n", "<|im_start|>assistant\n"
+    raise ValueError(
+        f"Unrecognized chat template format. "
+        f"Please specify instruction_part and response_part manually. "
+        f"Template starts with: {template[:100]!r}..."
+    )
 
 
 def get_instruction_response_parts(
     model_id: str,
-    tokenizer: Optional[object] = None,
+    tokenizer: object,
 ) -> tuple[str, str]:
-    """Get instruction and response parts for a model.
-
-    First checks MODEL_CONFIGS, then falls back to template detection.
+    """Get instruction and response parts for a model by detecting from tokenizer.
 
     Args:
-        model_id: The model identifier
-        tokenizer: Optional tokenizer for fallback detection
+        model_id: The model identifier (used in error messages)
+        tokenizer: Tokenizer with chat_template attribute
 
     Returns:
         Tuple of (instruction_part, response_part)
+
+    Raises:
+        ValueError: If chat template cannot be detected
     """
-    # Check explicit config first
-    config = get_model_config(model_id)
-    if config is not None:
-        return config.instruction_part, config.response_part
-
-    # Fallback to detection
-    if tokenizer is not None:
+    try:
         return detect_chat_template_parts(tokenizer)
-
-    # Ultimate fallback
-    return detect_chat_template_parts("")
+    except ValueError as e:
+        raise ValueError(f"Failed to detect chat template for {model_id}: {e}") from e

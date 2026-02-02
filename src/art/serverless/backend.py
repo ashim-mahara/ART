@@ -10,7 +10,7 @@ from art.serverless.client import Client, ExperimentalTrainingConfig
 from .. import dev
 from ..backend import AnyTrainableModel, Backend
 from ..trajectories import Trajectory, TrajectoryGroup
-from ..types import ServerlessTrainResult, SFTTrainConfig, TrainConfig
+from ..types import ServerlessTrainResult, TrainConfig, TrainSFTConfig
 
 if TYPE_CHECKING:
     from ..model import Model, TrainableModel
@@ -309,8 +309,8 @@ class ServerlessBackend(Backend):
         self,
         model: AnyTrainableModel,
         trajectories: Iterable[Trajectory],
-        config: SFTTrainConfig,
-        dev_config: dev.SFTTrainConfig,
+        config: TrainSFTConfig,
+        dev_config: dev.TrainSFTConfig,
         verbose: bool = False,
     ) -> AsyncIterator[dict[str, float]]:
         """Train the model using supervised fine-tuning.

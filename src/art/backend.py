@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Iterable, Protocol, TypeAl
 
 from . import dev
 from .trajectories import Trajectory, TrajectoryGroup
-from .types import SFTTrainConfig, TrainConfig, TrainResult
+from .types import TrainConfig, TrainResult, TrainSFTConfig
 
 if TYPE_CHECKING:
     from .model import Model, TrainableModel
@@ -55,7 +55,7 @@ class Backend(Protocol):
         self,
         model: AnyTrainableModel,
         trajectories: Iterable[Trajectory],
-        config: SFTTrainConfig,
-        dev_config: dev.SFTTrainConfig,
+        config: TrainSFTConfig,
+        dev_config: dev.TrainSFTConfig,
         verbose: bool = False,
     ) -> AsyncIterator[dict[str, float]]: ...

@@ -12,7 +12,7 @@ from typing_extensions import Never, TypeVar
 
 from . import dev
 from .trajectories import Trajectory, TrajectoryGroup
-from .types import SFTTrainConfig, TrainConfig
+from .types import TrainConfig, TrainSFTConfig
 from .utils.old_benchmarking.calculate_step_metrics import calculate_step_std_dev
 from .utils.trajectory_logging import write_trajectory_groups_parquet
 
@@ -708,10 +708,7 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
         groups_list = list(trajectory_groups)
         _config = _config or {}  # ty:ignore[invalid-assignment]
 
-        # 1. Log trajectories first (frontend handles this now)
-        await self.log(groups_list, split="train")
-
-        # 2. Train (backend no longer logs internally)
+        # 1. Train (backend no longer logs internally)
         training_metrics: list[dict[str, float]] = []
         async for metrics in self.backend()._train_model(
             self,
@@ -722,7 +719,8 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
         ):
             training_metrics.append(metrics)
 
-        # 3. Log training metrics (loss, gradient norms, etc.)
+        # 2. Calculate aggregated training metrics
+        avg_metrics: dict[str, float] = {}
         if training_metrics:
             avg_metrics = {
                 k: sum(d.get(k, 0) for d in training_metrics)
@@ -730,15 +728,17 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
                 for k in {k for d in training_metrics for k in d}
                 if k != "num_gradient_steps"
             }
-            # Get the current step after training
-            step = await self.get_step()
-            self._log_metrics(avg_metrics, "train", step)
+
+        # 3. Log trajectories and training metrics in a single call
+        # This ensures only one wandb log per training step (consistent with train_sft)
+        step = await self.get_step()
+        await self.log(groups_list, split="train", metrics=avg_metrics, step=step)
 
     async def train_sft(
         self,
         trajectories: Iterable[Trajectory],
-        config: SFTTrainConfig | None = None,
-        _config: dev.SFTTrainConfig | None = None,
+        config: TrainSFTConfig | None = None,
+        _config: dev.TrainSFTConfig | None = None,
         verbose: bool = False,
     ) -> None:
         """
@@ -747,13 +747,13 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
         Args:
             trajectories: An iterable of Trajectory objects.
             config: SFT configuration including learning_rates and batch_size.
-                If None, uses default SFTTrainConfig().
+                If None, uses default TrainSFTConfig().
             _config: Additional experimental configuration that is subject to change and
                 not yet part of the public API. Use at your own risk.
             verbose: Whether to print verbose output.
         """
         if config is None:
-            config = SFTTrainConfig()
+            config = TrainSFTConfig()
 
         # Train (backend yields metrics for each batch without logging)
         # Collect all metrics and aggregate them at the end (same as RL)

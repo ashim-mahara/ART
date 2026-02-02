@@ -19,7 +19,7 @@ class TrainConfig(pydantic.BaseModel):
     beta: float = 0.0
 
 
-class SFTTrainConfig(pydantic.BaseModel):
+class TrainSFTConfig(pydantic.BaseModel):
     learning_rate: float | list[float] = 5e-5  # Single value or per-batch list
     batch_size: int | Literal["auto"] = "auto"
 

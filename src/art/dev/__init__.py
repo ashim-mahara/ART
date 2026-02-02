@@ -9,7 +9,7 @@ from .model import (
     TrainerArgs,
 )
 from .openai_server import OpenAIServerConfig, ServerArgs, get_openai_server_config
-from .train import SFTTrainConfig, TrainConfig
+from .train import TrainConfig, TrainSFTConfig
 
 __all__ = [
     "EngineArgs",
@@ -23,6 +23,6 @@ __all__ = [
     "get_openai_server_config",
     "OpenAIServerConfig",
     "ServerArgs",
-    "SFTTrainConfig",
+    "TrainSFTConfig",
     "TrainConfig",
 ]

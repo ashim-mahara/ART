@@ -41,12 +41,12 @@ async def main():
     load_dotenv()
 
     backend = LocalBackend()
-    model_name = "sft-rl-switch-test-" + "".join(
+    model_name = "sft-warmup-" + "".join(
         random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=8)
     )
     model = art.TrainableModel(
         name=model_name,
-        project="sft-rl-demo",
+        project="sft-warmup",
         base_model="Qwen/Qwen2.5-7B-Instruct",
     )
     await model.register(backend)
@@ -57,7 +57,7 @@ async def main():
     print("\n[Phase 1] SFT training...")
     await model.train_sft(
         SFT_TRAJECTORIES,
-        config=art.SFTTrainConfig(learning_rate=1e-6, batch_size=1),
+        config=art.TrainSFTConfig(learning_rate=1e-5, batch_size=1),
     )
     print("SFT phase 1 complete.")
 
@@ -75,9 +75,7 @@ async def main():
                 for _ in range(12)
             ]
         )
-        await model.train(
-            train_groups, config=art.TrainConfig(learning_rate=1e-6, batch_size=1)
-        )
+        await model.train(train_groups)
     print("RL phase 2 complete.")
 
     # ========================================================================
@@ -86,7 +84,7 @@ async def main():
     print("\n[Phase 3] SFT training again...")
     await model.train_sft(
         SFT_TRAJECTORIES,
-        config=art.SFTTrainConfig(batch_size=1, learning_rate=1e-6),
+        config=art.TrainSFTConfig(batch_size=1, learning_rate=1e-5),
     )
     print("SFT phase 3 complete.")
 
@@ -104,9 +102,7 @@ async def main():
                 for _ in range(12)
             ]
         )
-        await model.train(
-            train_groups, config=art.TrainConfig(learning_rate=1e-5, batch_size=1)
-        )
+        await model.train(train_groups)
     print("RL phase 4 complete.")
 
     # ========================================================================

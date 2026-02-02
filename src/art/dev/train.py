@@ -29,5 +29,5 @@ positive advantages. Defaults to 0.0 (perfectly balanced)."""
     truncated_importance_sampling: float | None
 
 
-class SFTTrainConfig(TypedDict, total=False):
+class TrainSFTConfig(TypedDict, total=False):
     """Experimental SFT configuration options. Use at your own risk."""
