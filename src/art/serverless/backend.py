@@ -336,14 +336,6 @@ class ServerlessBackend(Backend):
 
         assert model.id is not None, "Model ID is required"
 
-        # Convert trajectories to list
-        trajectory_list = list(trajectories)
-
-        if len(trajectory_list) == 0:
-            if verbose:
-                print("No trajectories to train on")
-            return
-
         # Get the user's default entity from W&B if not set
         if model.entity is None:
             api = wandb.Api(api_key=self._client.api_key)
@@ -354,13 +346,14 @@ class ServerlessBackend(Backend):
         artifact_name = f"{model.name}-sft-data-{artifact_id}"
 
         if verbose:
-            print(f"Serializing {len(trajectory_list)} trajectories...")
+            print("Serializing trajectories to file (streaming)...")
 
-        # Serialize trajectories to a temporary JSONL file
+        # Serialize trajectories to a temporary JSONL file (streaming - no memory load)
+        num_trajectories = 0
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".jsonl", delete=False
         ) as tmp_file:
-            for trajectory in trajectory_list:
+            for trajectory in trajectories:
                 # Convert trajectory to the expected JSONL format
                 line: dict[str, Any] = {
                     "messages": trajectory.messages(),
@@ -368,11 +361,23 @@ class ServerlessBackend(Backend):
                 if trajectory.tools:
                     line["tools"] = trajectory.tools
                 tmp_file.write(json.dumps(line) + "\n")
+                num_trajectories += 1
             tmp_file_path = tmp_file.name
+
+        if num_trajectories == 0:
+            if verbose:
+                print("No trajectories to train on")
+            import os
+
+            os.unlink(tmp_file_path)
+            return
+
+        if verbose:
+            print(f"Serialized {num_trajectories} trajectories")
 
         try:
             if verbose:
-                print(f"Uploading training data to W&B artifacts...")
+                print("Uploading training data to W&B artifacts...")
 
             # Upload the file to W&B as a dataset artifact
             # Use the model's canonical run_id from database, or fall back to model name
@@ -391,7 +396,7 @@ class ServerlessBackend(Backend):
                     type="dataset",
                     metadata={
                         "format": "jsonl",
-                        "num_trajectories": len(trajectory_list),
+                        "num_trajectories": num_trajectories,
                     },
                 )
                 artifact.add_file(tmp_file_path, name="train.jsonl")

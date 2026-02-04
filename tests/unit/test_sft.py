@@ -6,20 +6,7 @@ import tempfile
 
 import pytest
 
-from art.trajectories import Trajectory
-from art.utils.sft import create_lr_schedule, iterate_file, prepare_sft_dataset
-
-
-# Helper to create dummy trajectories
-def create_dummy_trajectory(idx: int) -> Trajectory:
-    """Create a dummy trajectory with a unique identifier."""
-    return Trajectory(
-        messages_and_choices=[
-            {"role": "user", "content": f"Message {idx}"},
-            {"role": "assistant", "content": f"Response {idx}"},
-        ],
-        reward=float(idx),
-    )
+from art.utils.sft import create_lr_schedule, iterate_file
 
 
 # Helper to create a temporary JSONL file
@@ -38,195 +25,58 @@ def create_temp_jsonl(num_trajectories: int) -> Path:
     return Path(temp_file.name)
 
 
-# ============================================================================
-# Integration tests
-# ============================================================================
-
-
-def test_prepare_sft_dataset_basic():
-    """Test prepare_sft_dataset prepares trajectories and learning rates correctly."""
-    trajectories = [create_dummy_trajectory(i) for i in range(20)]
-
-    # With 20 trajectories, 3 epochs, batch_size=4:
-    # - Total trajectories: 20 * 3 = 60
-    # - Total batches: ceil(60 / 4) = 15
-    all_trajs, learning_rates = prepare_sft_dataset(
-        trajectories=trajectories,
-        epochs=3,
-        batch_size=4,
-        peak_lr=1e-4,
-        schedule_type="linear",
-        warmup_ratio=0.1,
-    )
-
-    # Should have 60 trajectories (20 * 3 epochs)
-    assert len(all_trajs) == 60
-
-    # Should have 15 learning rates (one per batch)
-    assert len(learning_rates) == 15
-
-
-def test_prepare_sft_dataset_single_epoch():
-    """Test prepare_sft_dataset with single epoch."""
-    trajectories = [create_dummy_trajectory(i) for i in range(10)]
-
-    all_trajs, learning_rates = prepare_sft_dataset(
-        trajectories=trajectories,
-        epochs=1,
-        batch_size=2,
-        peak_lr=1e-4,
-        schedule_type="constant",
-    )
-
-    # Should have 10 trajectories
-    assert len(all_trajs) == 10
-
-    # Should have 5 learning rates (ceil(10/2) = 5)
-    assert len(learning_rates) == 5
-
-    # With constant schedule, all learning rates should be the same
-    assert all(lr == pytest.approx(1e-4) for lr in learning_rates)
-
-
-def test_prepare_sft_dataset_epoch_shuffling():
-    """Test that different epochs have different trajectory orderings."""
-    trajectories = [create_dummy_trajectory(i) for i in range(10)]
-
-    all_trajs, _ = prepare_sft_dataset(
-        trajectories=trajectories,
-        epochs=2,
-        batch_size=10,
-        peak_lr=1e-4,
-        schedule_type="constant",
-    )
-
-    # Should have 20 trajectories (10 * 2 epochs)
-    assert len(all_trajs) == 20
-
-    # Get content from each epoch
-    epoch0_contents = [
-        t.messages_and_choices[0]["content"]  # type: ignore[index,typeddict-item]
-        for t in all_trajs[:10]
-    ]
-    epoch1_contents = [
-        t.messages_and_choices[0]["content"]  # type: ignore[index,typeddict-item]
-        for t in all_trajs[10:]
-    ]
-
-    # Different epochs should have different orderings (due to shuffle)
-    assert epoch0_contents != epoch1_contents
-
-
-def test_prepare_sft_dataset_deterministic_shuffling():
-    """Test that shuffling is deterministic with same seed."""
-    trajectories = [create_dummy_trajectory(i) for i in range(10)]
-
-    # Run twice with same seed
-    all_trajs1, _ = prepare_sft_dataset(
-        trajectories=trajectories,
-        epochs=2,
-        batch_size=5,
-        peak_lr=1e-4,
-        schedule_type="constant",
-        shuffle_seed=42,
-    )
-
-    all_trajs2, _ = prepare_sft_dataset(
-        trajectories=trajectories,
-        epochs=2,
-        batch_size=5,
-        peak_lr=1e-4,
-        schedule_type="constant",
-        shuffle_seed=42,
-    )
-
-    # Should get same order
-    for t1, t2 in zip(all_trajs1, all_trajs2):
-        assert t1.reward == t2.reward
-
-
-def test_prepare_sft_dataset_with_initial_step():
-    """Test resuming from initial_step skips correct trajectories and LRs."""
-    trajectories = [create_dummy_trajectory(i) for i in range(10)]
-
-    # Without initial_step
-    all_trajs_full, lrs_full = prepare_sft_dataset(
-        trajectories=trajectories,
-        epochs=1,
-        batch_size=2,
-        peak_lr=1e-4,
-        schedule_type="linear",
-    )
-
-    # With initial_step=2: skip first 2 batches (4 trajectories)
-    all_trajs_resumed, lrs_resumed = prepare_sft_dataset(
-        trajectories=trajectories,
-        epochs=1,
-        batch_size=2,
-        peak_lr=1e-4,
-        schedule_type="linear",
-        initial_step=2,
-    )
-
-    # Should have fewer trajectories and learning rates
-    assert len(all_trajs_resumed) == len(all_trajs_full) - 4  # Skip 2 batches * 2 trajs
-    assert len(lrs_resumed) == len(lrs_full) - 2  # Skip 2 LRs
-
-
-def test_prepare_sft_dataset_empty():
-    """Test prepare_sft_dataset with empty trajectories."""
-    all_trajs, learning_rates = prepare_sft_dataset(
-        trajectories=[],
-        epochs=3,
-        batch_size=4,
-        peak_lr=1e-4,
-        schedule_type="linear",
-    )
-
-    assert all_trajs == []
-    assert learning_rates == []
-
-
 def test_iterate_file():
     """Test iterate_file reads trajectories correctly."""
     jsonl_file = create_temp_jsonl(10)
 
     try:
-        # Read without shuffle
-        trajectories = list(
-            iterate_file(
-                str(jsonl_file),
-                shuffle=False,
-            )
-        )
+        trajectories = list(iterate_file(str(jsonl_file), epochs=1))
 
-        # Should have 10 trajectories
         assert len(trajectories) == 10
-
-        # Verify the content - should be in order
-        for i in range(10):
-            assert f"Message {i}" in str(trajectories[i].messages_and_choices)
 
     finally:
         jsonl_file.unlink()
 
 
-def test_iterate_file_with_shuffle():
-    """Test iterate_file with shuffle enabled."""
-    jsonl_file = create_temp_jsonl(100)
+def test_iterate_file_multiple_epochs():
+    """Test iterate_file with multiple epochs."""
+    jsonl_file = create_temp_jsonl(10)
 
     try:
-        # Read with shuffle
-        trajectories = list(
-            iterate_file(
-                str(jsonl_file),
-                shuffle=True,
-                shuffle_buffer_size=10,
-            )
-        )
+        trajectories = list(iterate_file(str(jsonl_file), epochs=3))
 
-        # Should have 100 trajectories
-        assert len(trajectories) == 100
+        # Should have 30 trajectories (10 * 3 epochs)
+        assert len(trajectories) == 30
+
+    finally:
+        jsonl_file.unlink()
+
+
+def test_iterate_file_with_initial_skip():
+    """Test iterate_file with initial_skip for resuming."""
+    jsonl_file = create_temp_jsonl(10)
+
+    try:
+        # Skip first 5 trajectories
+        trajectories = list(iterate_file(str(jsonl_file), epochs=1, initial_skip=5))
+
+        assert len(trajectories) == 5
+
+    finally:
+        jsonl_file.unlink()
+
+
+def test_iterate_file_deterministic():
+    """Test that iterate_file is deterministic with same seed."""
+    jsonl_file = create_temp_jsonl(20)
+
+    try:
+        traj1 = list(iterate_file(str(jsonl_file), epochs=1, seed=42))
+        traj2 = list(iterate_file(str(jsonl_file), epochs=1, seed=42))
+
+        # Should get same order
+        for t1, t2 in zip(traj1, traj2):
+            assert t1.messages_and_choices == t2.messages_and_choices
 
     finally:
         jsonl_file.unlink()

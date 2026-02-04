@@ -24,6 +24,7 @@ from ..preprocessing.pack import (
     PackedTensors,
     packed_tensors_from_dir,
 )
+from ..preprocessing.tokenize import SFTBatch
 from ..utils.get_model_step import get_step_from_dir
 from ..utils.output_dirs import get_step_checkpoint_dir
 from ..vllm import get_llm, get_worker, openai_server_task, run_on_workers
@@ -474,22 +475,29 @@ class UnslothService:
         if verbose:
             print("UnslothService.train complete")
 
+    # =========================================================================
+    # SFT training
+    # =========================================================================
+
     async def train_sft(
         self,
-        sft_batches: list,
+        batch_queue: Any,  # Queue[SFTBatch | None] - using Any for Manager().Queue() compat
         verbose: bool = False,
     ) -> AsyncIterator[dict[str, float]]:
-        """Train the model using supervised fine-tuning.
+        """Train using SFT, reading batches from a multiprocessing Queue.
 
         Args:
-            sft_batches: List of SFTBatch objects from tokenize_sft_batches
-            verbose: Whether to print detailed logs
+            batch_queue: Queue of SFTBatch objects. None signals end of batches.
+            verbose: Whether to print detailed logs.
 
         Yields:
-            Dictionary containing training metrics for each batch
+            Dictionary containing training metrics for each batch.
         """
+        import time
+
         llm = await self.llm
 
+        # === Setup ===
         # Pause generation to prevent new requests during training
         await llm.pause_generation()
 
@@ -509,11 +517,8 @@ class UnslothService:
         # Reload training model to GPU (after vLLM is asleep)
         self._state.reload_to_gpu()
 
-        # Get model
+        # Get model and optimizer
         peft_model = self._state.peft_model
-
-        # Reset optimizer state if switching from RL to SFT
-        # Uses shared trainer.optimizer for both SFT and RL
         self._reset_optimizer_if_mode_changed("sft")
         optimizer = self._get_optimizer()
 
@@ -526,12 +531,15 @@ class UnslothService:
         max_grad_norm = 1.0
 
         if verbose:
-            print(f"Training SFT on {len(sft_batches)} batches")
+            print("SFT training started")
 
-        import time
+        # === Process batches from queue ===
+        batch_idx = 0
+        while True:
+            batch = batch_queue.get()
+            if batch is None:  # Sentinel signals end
+                break
 
-        # The training loop
-        for batch_idx, batch in enumerate(sft_batches):
             batch_start_time = time.perf_counter()
             batch_loss = 0.0
 
@@ -539,8 +547,7 @@ class UnslothService:
             for param_group in optimizer.param_groups:
                 param_group["lr"] = batch.learning_rate
 
-            # Total trainable tokens for loss normalization (normalizes by tokens, not trajectories)
-            # This ensures each token contributes equally regardless of how trajectories are split
+            # Total trainable tokens for loss normalization
             num_items_in_batch = torch.tensor(
                 batch.num_trainable_tokens, dtype=torch.long, device=device
             )
@@ -553,7 +560,6 @@ class UnslothService:
                 labels = trajectory_tensor["labels"].to(device)
 
                 # Forward pass with num_items_in_batch for proper loss normalization
-                # Loss = sum(cross_entropy) / num_items_in_batch
                 outputs = peft_model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -590,7 +596,8 @@ class UnslothService:
                     f"grad_norm={grad_norm:.4f}, tok/s={tokens_per_second:.1f}"
                 )
 
-            # Yield metrics
+            batch_idx += 1
+
             yield {
                 "loss": batch_loss,
                 "learning_rate": batch.learning_rate,
@@ -600,9 +607,8 @@ class UnslothService:
                 "tokens_per_second": tokens_per_second,
             }
 
+        # === Cleanup ===
         # Save checkpoint after training
-        # Name checkpoint by final training step: starting_step + 1 (same as RL)
-        # Each train_sft() call produces one checkpoint, regardless of internal batch count
         checkpoint_dir = save_checkpoint(
             trainer=self._state.trainer,
             output_dir=self.output_dir,
@@ -620,8 +626,7 @@ class UnslothService:
         await run_on_workers(llm, do_wake_up)
         self._is_sleeping = False
 
-        # Add the new LoRA adapter (same as RL training)
-        # We keep old LoRAs loaded - vLLM will page them out as needed
+        # Add the new LoRA adapter
         new_step = int(os.path.basename(checkpoint_dir))
         added = await llm.add_lora(
             LoRARequest(
@@ -640,7 +645,7 @@ class UnslothService:
         await llm.resume_generation()
 
         if verbose:
-            print("UnslothService.train_sft complete")
+            print("SFT training finished")
 
     @cached_property
     def _state(self) -> UnslothState:

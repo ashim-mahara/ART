@@ -41,7 +41,10 @@ from ..preprocessing.pack import (
     packed_tensors_to_dir,
     plot_packed_tensors,
 )
-from ..preprocessing.tokenize import tokenize_trajectory_groups
+from ..preprocessing.tokenize import (
+    tokenize_sft_batch,
+    tokenize_trajectory_groups,
+)
 from ..trajectories import Trajectory, TrajectoryGroup
 from ..types import LocalTrainResult, Message, TrainConfig, TrainSFTConfig
 from ..utils import format_message, get_model_step
@@ -355,6 +358,7 @@ class LocalBackend(Backend):
                     # Otherwise, continue and try again
 
     # Note: _log() method has been moved to the Model class (frontend)
+
     def _trajectory_log(self, trajectory: Trajectory) -> str:
         """Format a trajectory into a readable log string."""
         header = f"reward: {trajectory.reward} {' '.join(f'{k}: {v}' for k, v in trajectory.metrics.items())}\n\n"
@@ -625,6 +629,9 @@ class LocalBackend(Backend):
         if verbose:
             print("_train_model complete")
 
+    # Note: _get_reward_std_dev_learning_rate_multiplier and _log_metrics
+    # have been moved to the Model class (frontend)
+
     async def _train_sft(
         self,
         model: AnyTrainableModel,
@@ -638,7 +645,8 @@ class LocalBackend(Backend):
         Args:
             model: The trainable model to fine-tune
             trajectories: Iterable of Trajectory objects
-            config: SFT configuration with batch_size and learning rates
+            config: SFT configuration with batch_size and learning rates.
+                    If learning_rate is a list, streaming mode is used automatically.
             dev_config: Developer configuration
             verbose: Whether to print detailed logs
 
@@ -647,14 +655,6 @@ class LocalBackend(Backend):
         """
         if verbose:
             print("Starting _train_sft")
-
-        # Convert iterator to list
-        trajectory_list = list(trajectories)
-
-        if len(trajectory_list) == 0:
-            if verbose:
-                print("No trajectories to train on")
-            return
 
         # Get tokenizer
         if model.base_model not in self._tokenizers:
@@ -668,81 +668,136 @@ class LocalBackend(Backend):
         if batch_size == "auto":
             batch_size = 2  # Default to 2 for SFT
 
-        # Determine learning rates
-        learning_rates: list[float]
-        num_batches = math.ceil(len(trajectory_list) / batch_size)
-        if isinstance(config.learning_rate, list):
-            # Per-batch learning rates provided
-            learning_rates = config.learning_rate
-            # Validate count matches expected batches
-            if len(learning_rates) != num_batches:
-                raise ValueError(
-                    f"Number of learning rates ({len(learning_rates)}) does not match "
-                    f"number of batches ({num_batches}). With {len(trajectory_list)} "
-                    f"trajectories and batch_size={batch_size}, expected {num_batches} learning rates."
-                )
-        else:
-            # Single value - create constant list for all batches
-            learning_rates = [config.learning_rate] * num_batches
-
-        # Tokenize trajectories into batches
-        from ..preprocessing.tokenize import tokenize_sft_batches
+        # Auto-detect instruction/response parts from model
         from ..utils.model_config import get_instruction_response_parts
 
-        # Get instruction/response parts (from config or auto-detect)
-        instruction_part = dev_config.get("instruction_part", None)
-        response_part = dev_config.get("response_part", None)
-
-        if instruction_part is None or response_part is None:
-            detected_inst, detected_resp = get_instruction_response_parts(
-                model.base_model, tokenizer
-            )
-            instruction_part = instruction_part or detected_inst
-            response_part = response_part or detected_resp
+        instruction_part, response_part = get_instruction_response_parts(
+            model.base_model, tokenizer
+        )
 
         if verbose:
             print(f"Using instruction_part: {instruction_part!r}")
             print(f"Using response_part: {response_part!r}")
 
-        sft_batches = list(
-            tokenize_sft_batches(
-                trajectories=trajectory_list,
-                batch_size=batch_size,
-                learning_rates=learning_rates,
-                tokenizer=tokenizer,
-                instruction_part=instruction_part,
-                response_part=response_part,
-            )
-        )
+        # Always use streaming mode to avoid memory issues with large datasets
+        import itertools
+        from typing import Iterator
 
-        if verbose:
-            total_trainable = sum(b.num_trainable_tokens for b in sft_batches)
-            print(
-                f"Tokenized {len(trajectory_list)} trajectories into {len(sft_batches)} batches"
-            )
-            print(f"Total trainable tokens: {total_trainable}")
-            if total_trainable == 0:
-                print(
-                    "WARNING: No trainable tokens found! Check instruction_part and response_part settings."
+        from ..preprocessing.tokenize import SFTBatch
+
+        if isinstance(config.learning_rate, list):
+            # Pre-calculated learning rate schedule - we know exact batch count
+            learning_rates_iter: Iterator[float] = iter(config.learning_rate)
+            num_batches: int | None = len(config.learning_rate)
+            if verbose:
+                print(f"Using streaming mode with {num_batches} batches")
+        else:
+            # Single learning rate - use for all batches (unknown total)
+            learning_rates_iter = itertools.repeat(config.learning_rate)
+            num_batches = None
+            if verbose:
+                print("Using streaming mode with constant learning rate")
+
+        # Generator that batches trajectories and tokenizes them on-the-fly
+        def create_sft_batches() -> Iterator[SFTBatch]:
+            current_batch: list[Trajectory] = []
+            for trajectory in trajectories:
+                current_batch.append(trajectory)
+                if len(current_batch) >= batch_size:
+                    lr = next(learning_rates_iter)
+                    yield tokenize_sft_batch(
+                        trajectory_batch=current_batch,
+                        learning_rate=lr,
+                        tokenizer=tokenizer,
+                        instruction_part=instruction_part,
+                        response_part=response_part,
+                    )
+                    current_batch = []
+            # Handle remaining trajectories (final partial batch)
+            if current_batch:
+                lr = next(learning_rates_iter)
+                yield tokenize_sft_batch(
+                    trajectory_batch=current_batch,
+                    learning_rate=lr,
+                    tokenizer=tokenizer,
+                    instruction_part=instruction_part,
+                    response_part=response_part,
                 )
 
         # Get the service to access the model and optimizer
         service = await self._get_service(model)
 
-        # Train using the service's train_sft method
-        if verbose:
-            print("Using service.train_sft")
+        # Use a Manager Queue to stream batches to the service
+        # (generators can't be pickled when service runs out-of-process)
+        # Manager().Queue() can be shared with already-spawned child processes
+        import multiprocessing
+        import threading
 
-        num_batches = len(sft_batches)
+        manager = multiprocessing.Manager()
+        batch_queue = manager.Queue(maxsize=10)  # Limit queue size
+        stop_event = threading.Event()  # Signal producer to stop on error
+        producer_exception: list[BaseException] = []  # Store exception from producer
+
+        # Producer thread feeds batches into queue
+        def produce_batches() -> None:
+            try:
+                for batch in create_sft_batches():
+                    # Use timeout to periodically check stop_event
+                    while not stop_event.is_set():
+                        try:
+                            batch_queue.put(batch, timeout=0.5)
+                            break  # Successfully put, move to next batch
+                        except Exception:
+                            continue  # Queue full, retry after checking stop_event
+                    if stop_event.is_set():
+                        break
+            except BaseException as e:
+                producer_exception.append(e)
+            finally:
+                # Always send sentinel (may block briefly, but consumer should be
+                # draining queue or we'll drain it in finally block below)
+                try:
+                    batch_queue.put(None, timeout=1.0)
+                except Exception:
+                    pass  # Best effort
+
+        producer = threading.Thread(target=produce_batches)
+        producer.start()
+
         pbar = tqdm.tqdm(total=num_batches, desc="sft train")
+        total_trainable_tokens = 0
+        batch_count = 0
 
-        async for result in service.train_sft(sft_batches, verbose):
-            pbar.update(1)
-            pbar.set_postfix({"loss": f"{result.get('loss', 0):.4f}"})
+        try:
+            async for result in service.train_sft(batch_queue, verbose):
+                pbar.update(1)
+                pbar.set_postfix({"loss": f"{result.get('loss', 0):.4f}"})
+                total_trainable_tokens += result.get("num_trainable_tokens", 0)
+                batch_count += 1
 
-            # Note: Metrics logging is handled by the frontend (Model.train_sft())
-            yield result
-        pbar.close()
+                # Note: Metrics logging is handled by the frontend (Model.train_sft())
+                yield result
+
+            # Warn if no trainable tokens found (after successful completion)
+            if batch_count > 0 and total_trainable_tokens == 0:
+                print(
+                    "WARNING: No trainable tokens found! "
+                    "Check instruction_part and response_part settings."
+                )
+        finally:
+            pbar.close()
+            stop_event.set()  # Signal producer to stop
+            # Drain queue to unblock producer if it's stuck on put()
+            try:
+                while True:
+                    batch_queue.get_nowait()
+            except Exception:
+                pass  # Queue empty
+            producer.join(timeout=5.0)
+            manager.shutdown()
+            # Re-raise producer exception if any
+            if producer_exception:
+                raise producer_exception[0]
 
         if verbose:
             print("_train_sft complete")

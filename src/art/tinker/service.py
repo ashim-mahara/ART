@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import time
-from typing import AsyncIterator, Generator
+from typing import Any, AsyncIterator, Generator
 
 import tinker
 from tinker.lib.public_interfaces.rest_client import RestClient as TinkerRestClient
@@ -22,6 +22,7 @@ from ..preprocessing.pack import (
     DiskPackedTensors,
     packed_tensors_from_dir,
 )
+from ..preprocessing.tokenize import SFTBatch
 from .server import OpenAICompatibleTinkerServer
 
 
@@ -152,9 +153,10 @@ class TinkerService:
             state.renderer,
         )
 
+    # SFT not supported for TinkerService
     async def train_sft(
         self,
-        sft_batches: list,
+        batch_queue: Any,
         verbose: bool = False,
     ) -> AsyncIterator[dict[str, float]]:
         raise NotImplementedError("SFT training is not supported for TinkerService")
