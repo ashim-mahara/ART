@@ -620,15 +620,21 @@ class UnslothService:
         await run_on_workers(llm, do_wake_up)
         self._is_sleeping = False
 
-        # Swap out the LoRA adapter with the newly trained checkpoint
-        await llm.remove_lora(1)
-        await llm.add_lora(
+        # Add the new LoRA adapter (same as RL training)
+        # We keep old LoRAs loaded - vLLM will page them out as needed
+        new_step = int(os.path.basename(checkpoint_dir))
+        added = await llm.add_lora(
             LoRARequest(
-                lora_name=self.model_name,
-                lora_int_id=1,
+                lora_name=f"{self.model_name}@{new_step}",
+                lora_int_id=self._next_lora_id(),
                 lora_path=checkpoint_dir,
             )
         )
+        if not added:
+            raise RuntimeError(
+                f"Failed to add LoRA adapter for step {new_step} at {checkpoint_dir}"
+            )
+        self._latest_step = new_step
 
         # Resume generation after LoRA swap is complete
         await llm.resume_generation()

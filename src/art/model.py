@@ -895,8 +895,7 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
                 if k != "num_gradient_steps"
             }
 
-        # 3. Log trajectories and training metrics in a single call
-        # This ensures only one wandb log per training step (consistent with train_sft)
+        # 3. Log trajectories and training metrics together (single wandb log call)
         step = await self.get_step()
         await self.log(groups_list, split="train", metrics=avg_metrics, step=step)
 
@@ -923,9 +922,14 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
 
         # Train (backend yields metrics for each batch without logging)
         # Collect all metrics and aggregate them at the end (same as RL)
+        _config = _config or {}  # ty:ignore[invalid-assignment]
         training_metrics: list[dict[str, float]] = []
         async for metrics in self.backend()._train_sft(
-            self, trajectories, config, _config or {}, verbose
+            self,
+            trajectories,
+            config,
+            _config,  # ty:ignore[invalid-argument-type]
+            verbose,
         ):
             training_metrics.append(metrics)
 

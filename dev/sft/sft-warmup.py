@@ -13,7 +13,7 @@ from art.local import LocalBackend
 SFT_TRAJECTORIES = [
     art.Trajectory(
         messages_and_choices=[
-            {"role": "user", "content": "respond with yes or no"},
+            {"role": "user", "content": "respond with yes, no, or maybe"},
             {"role": "assistant", "content": "maybe"},
         ],
         reward=0.0,  # reward unused for SFT
@@ -27,7 +27,10 @@ async def rl_rollout(model: art.TrainableModel, prompt: str) -> art.Trajectory:
     client = model.openai_client()
 
     completion = await client.chat.completions.create(
-        messages=messages, model=model.name, max_tokens=10, timeout=30
+        messages=messages,
+        model=model.get_inference_name(),
+        max_tokens=10,
+        timeout=30,
     )
     choice = completion.choices[0]
     content = choice.message.content or ""
@@ -111,8 +114,8 @@ async def main():
     print("\n[Test] Model output after training:")
     client = model.openai_client()
     completion = await client.chat.completions.create(
-        messages=[{"role": "user", "content": "respond with yes or no"}],
-        model=model.inference_model_name or model.name,
+        messages=[{"role": "user", "content": "respond with yes, no, or maybe"}],
+        model=model.get_inference_name(),
         max_tokens=10,
     )
     print(f"Response: {completion.choices[0].message.content}")

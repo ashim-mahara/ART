@@ -577,17 +577,11 @@ class LocalBackend(Backend):
                     f"Advanced step from {current_step} to {next_step} (no training occurred)"
                 )
 
-                try:
-                    # Register the renamed checkpoint as a new LoRA adapter
-                    # so it's available for inference at the new step
-                    from ..unsloth.service import UnslothService
-
-                    if isinstance(service, UnslothService):
-                        await service.register_lora_for_step(
-                            next_step, next_checkpoint_dir
-                        )
-                except ModuleNotFoundError:
-                    pass  # Unsloth is not installed
+                # Register the renamed checkpoint as a new LoRA adapter
+                # so it's available for inference at the new step
+                # Use hasattr instead of isinstance because service may be a proxy object
+                if hasattr(service, "register_lora_for_step"):
+                    await service.register_lora_for_step(next_step, next_checkpoint_dir)  # ty:ignore[call-non-callable]
 
             # Yield metrics showing no groups were trainable
             # (the frontend will handle logging)
