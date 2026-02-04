@@ -1,5 +1,26 @@
 """Model-specific configuration for chat templates and training defaults."""
 
+from dataclasses import dataclass
+
+
+@dataclass
+class ModelConfig:
+    """Configuration for a specific model's chat template."""
+
+    instruction_part: str
+    response_part: str
+
+
+# Explicit model configurations for models that can't be auto-detected.
+# Models not listed here will fall back to auto-detection from the tokenizer's chat_template.
+MODEL_CONFIGS: dict[str, ModelConfig] = {
+    # Qwen3 with thinking disabled - always includes empty <think> tags
+    "OpenPipe/Qwen3-14B-Instruct": ModelConfig(
+        instruction_part="<|im_start|>user\n",
+        response_part="<|im_start|>assistant\n<think>\n\n</think>\n\n",
+    ),
+}
+
 
 def detect_chat_template_parts(
     tokenizer: object,
@@ -53,18 +74,27 @@ def get_instruction_response_parts(
     model_id: str,
     tokenizer: object,
 ) -> tuple[str, str]:
-    """Get instruction and response parts for a model by detecting from tokenizer.
+    """Get instruction and response parts for a model.
+
+    Checks for explicit model configuration first, then falls back to
+    auto-detection from the tokenizer's chat template.
 
     Args:
-        model_id: The model identifier (used in error messages)
+        model_id: The model identifier
         tokenizer: Tokenizer with chat_template attribute
 
     Returns:
         Tuple of (instruction_part, response_part)
 
     Raises:
-        ValueError: If chat template cannot be detected
+        ValueError: If chat template cannot be detected and model has no explicit config
     """
+    # Check for explicit model configuration first
+    if model_id in MODEL_CONFIGS:
+        config = MODEL_CONFIGS[model_id]
+        return config.instruction_part, config.response_part
+
+    # Fall back to auto-detection
     try:
         return detect_chat_template_parts(tokenizer)
     except ValueError as e:
