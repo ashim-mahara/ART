@@ -536,7 +536,7 @@ class UnslothService:
         # === Process batches from queue ===
         batch_idx = 0
         while True:
-            batch = batch_queue.get()
+            batch = batch_queue.get()  # Blocks until data available
             if batch is None:  # Sentinel signals end
                 break
 

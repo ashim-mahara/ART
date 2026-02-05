@@ -689,14 +689,14 @@ class LocalBackend(Backend):
             # Pre-calculated learning rate schedule - we know exact batch count
             learning_rates_iter: Iterator[float] = iter(config.learning_rate)
             num_batches: int | None = len(config.learning_rate)
-            if verbose:
-                print(f"Using streaming mode with {num_batches} batches")
         else:
-            # Single learning rate - use for all batches (unknown total)
+            # Single learning rate - use for all batches
             learning_rates_iter = itertools.repeat(config.learning_rate)
-            num_batches = None
-            if verbose:
-                print("Using streaming mode with constant learning rate")
+            # Try to calculate num_batches from trajectory count if available
+            if hasattr(trajectories, "__len__"):
+                num_batches = math.ceil(len(trajectories) / batch_size)  # type: ignore[arg-type]
+            else:
+                num_batches = None
 
         # Generator that batches trajectories and tokenizes them on-the-fly
         def create_sft_batches() -> Iterator[SFTBatch]:
@@ -754,12 +754,8 @@ class LocalBackend(Backend):
             except BaseException as e:
                 producer_exception.append(e)
             finally:
-                # Always send sentinel (may block briefly, but consumer should be
-                # draining queue or we'll drain it in finally block below)
-                try:
-                    batch_queue.put(None, timeout=1.0)
-                except Exception:
-                    pass  # Best effort
+                # Always send sentinel - block until delivered (no timeout)
+                batch_queue.put(None)
 
         producer = threading.Thread(target=produce_batches)
         producer.start()
