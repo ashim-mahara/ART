@@ -53,9 +53,7 @@ class ServerlessBackend(Backend):
         )
         model.id = client_model.id
         model.entity = client_model.entity
-        # Store run_id for wandb run management
-        if hasattr(client_model, "run_id"):
-            model.run_id = client_model.run_id
+        model.run_id = client_model.run_id
 
     async def delete(
         self,
@@ -381,10 +379,9 @@ class ServerlessBackend(Backend):
 
             # Upload the file to W&B as a dataset artifact
             # Use the model's canonical run_id from database, or fall back to model name
-            run_id_to_use = getattr(model, "run_id", model.name)
             run = wandb.init(
                 name=model.name,
-                id=run_id_to_use,  # Use stored run_id to match the canonical wandb run
+                id=model.run_id or model.name,  # Use stored run_id to match the canonical wandb run
                 entity=model.entity,
                 project=model.project,
                 resume="allow",  # Resume if this run already exists

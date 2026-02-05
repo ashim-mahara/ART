@@ -30,6 +30,7 @@ class Model(BaseModel):
     project: str
     name: str
     base_model: str
+    run_id: str | None
 
 
 class Checkpoint(BaseModel):

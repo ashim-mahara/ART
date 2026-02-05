@@ -691,6 +691,7 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
         project: str,
         entity: str | None = None,
         id: str | None = None,
+        run_id: str | None = None,
         config: ModelConfig | None = None,
         base_model: str,
         base_path: str = ".art",
