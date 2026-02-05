@@ -36,13 +36,12 @@ def detect_chat_template_parts(
     Raises:
         ValueError: If the tokenizer has no chat_template or the format is unrecognized
     """
-    if not hasattr(tokenizer, "chat_template") or not tokenizer.chat_template:
+    template = getattr(tokenizer, "chat_template", None)
+    if not template or not isinstance(template, str):
         raise ValueError(
             "Cannot detect chat template parts: tokenizer has no chat_template attribute. "
             "Please specify instruction_part and response_part manually."
         )
-
-    template: str = tokenizer.chat_template
 
     # ChatML format (Qwen, etc.)
     if "<|im_start|>" in template:
