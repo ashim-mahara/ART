@@ -72,6 +72,7 @@ class Model(
     project: str
     entity: str | None = None
     id: str | None = None
+    run_id: str | None = None
     config: ModelConfig
     # Discriminator field for FastAPI serialization
     trainable: bool = False

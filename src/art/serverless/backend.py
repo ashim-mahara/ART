@@ -381,7 +381,8 @@ class ServerlessBackend(Backend):
             # Use the model's canonical run_id from database, or fall back to model name
             run = wandb.init(
                 name=model.name,
-                id=model.run_id or model.name,  # Use stored run_id to match the canonical wandb run
+                id=model.run_id
+                or model.name,  # Use stored run_id to match the canonical wandb run
                 entity=model.entity,
                 project=model.project,
                 resume="allow",  # Resume if this run already exists

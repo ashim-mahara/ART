@@ -326,22 +326,6 @@ class UnslothService:
         self._latest_step = step
         await llm.resume_generation()
 
-    def _get_optimizer(self) -> Any:
-        """Get or create the shared optimizer.
-
-        GRPOTrainer creates its optimizer lazily, so it may be None if we
-        start with SFT before any RL training. This method ensures the
-        optimizer exists and is shared between SFT and RL.
-        """
-        if self._state.trainer.optimizer is None:
-            self._state.trainer.optimizer = torch.optim.AdamW(
-                self._state.peft_model.parameters(),
-                lr=1e-4,
-                betas=(0.9, 0.999),
-                weight_decay=0.0,
-            )
-        return self._state.trainer.optimizer
-
     def _reset_optimizer_if_mode_changed(
         self,
         mode: Literal["sft", "rl"],
@@ -357,9 +341,8 @@ class UnslothService:
         )
 
         if mode_changed:
-            optimizer = self._get_optimizer()
             # Clear all optimizer state (exp_avg, exp_avg_sq, step for each param)
-            optimizer.state.clear()
+            self._state.trainer.optimizer.state.clear()
 
         self._last_training_mode = mode
 
@@ -396,6 +379,11 @@ class UnslothService:
 
         # Reset optimizer state if switching from SFT to RL
         self._reset_optimizer_if_mode_changed("rl")
+
+        # Set RL-specific hyperparameters
+        rl_weight_decay = 0.1
+        for param_group in self._state.trainer.optimizer.param_groups:
+            param_group["weight_decay"] = rl_weight_decay
 
         # Load packed tensors
         packed_tensors = packed_tensors_from_dir(**disk_packed_tensors)
@@ -520,7 +508,12 @@ class UnslothService:
         # Get model and optimizer
         peft_model = self._state.peft_model
         self._reset_optimizer_if_mode_changed("sft")
-        optimizer = self._get_optimizer()
+        optimizer = self._state.trainer.optimizer
+
+        # Set SFT-specific hyperparameters
+        sft_weight_decay = 0.01
+        for param_group in optimizer.param_groups:
+            param_group["weight_decay"] = sft_weight_decay
 
         # Reset environment variable that may be set by RL training
         os.environ["UNSLOTH_RETURN_HIDDEN_STATES"] = "0"
@@ -688,6 +681,10 @@ class UnslothService:
             train_dataset=Dataset.from_list([data for _ in range(10_000_000)]),
             processing_class=tokenizer,
         )
+
+        # Initialize optimizer eagerly using trainer's configured settings.
+        if trainer.optimizer is None:
+            trainer.create_optimizer()
 
         # Initialize queues
         inputs_queue: asyncio.Queue[TrainInputs] = asyncio.Queue()
