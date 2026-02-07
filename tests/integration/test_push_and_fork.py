@@ -169,9 +169,15 @@ async def test_fork_checkpoint_from_wandb():
                 type="lora",
             ).download(root=dir_b)
             cmp = filecmp.dircmp(dir_a, dir_b)
-            assert not cmp.left_only, f"Files only in model A checkpoint: {cmp.left_only}"
-            assert not cmp.right_only, f"Files only in model B checkpoint: {cmp.right_only}"
-            assert not cmp.diff_files, f"Files differ between checkpoints: {cmp.diff_files}"
+            assert not cmp.left_only, (
+                f"Files only in model A checkpoint: {cmp.left_only}"
+            )
+            assert not cmp.right_only, (
+                f"Files only in model B checkpoint: {cmp.right_only}"
+            )
+            assert not cmp.diff_files, (
+                f"Files differ between checkpoints: {cmp.diff_files}"
+            )
             print("Verified: forked checkpoint matches model A's checkpoint")
 
         # Continue training model B
