@@ -713,6 +713,9 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
         )
         object.__setattr__(self, "_costs_lock", asyncio.Lock())
         object.__setattr__(self, "_cost_calculator", self._noop_cost_calculator)
+        if _internal_config is not None:
+            # Bypass BaseModel __setattr__ to allow setting private attr
+            object.__setattr__(self, "_internal_config", _internal_config)
 
     @property
     def cost_calculator(self) -> CostCalculator:
@@ -730,9 +733,6 @@ class TrainableModel(Model[ModelConfig, StateType], Generic[ModelConfig, StateTy
         _prompt_tokens: int | None, _completion_tokens: int | None
     ) -> dict[str, float]:
         return {}
-        if _internal_config is not None:
-            # Bypass BaseModel __setattr__ to allow setting private attr
-            object.__setattr__(self, "_internal_config", _internal_config)
 
     @overload
     def __new__(
