@@ -778,3 +778,140 @@ class TinkerNativeBackend(Backend):
                 STATE_KEY_LATEST_STEP: state.current_step,
             }
         )
+
+    async def _experimental_fork_checkpoint(
+        self,
+        model: Model,
+        from_model: str,
+        from_project: str | None = None,
+        from_s3_bucket: str | None = None,
+        not_after_step: int | None = None,
+        verbose: bool = False,
+        prefix: str | None = None,
+    ) -> None:
+        """Fork a checkpoint from another TinkerNative model to initialize this model.
+
+        Loads the source model's training checkpoint into the destination model's
+        training client directly via tinker:// paths. No local download needed.
+
+        Args:
+            model: The destination model to fork to (must already be registered).
+            from_model: The name of the source model to fork from.
+            from_project: The project of the source model. Defaults to model.project.
+            from_s3_bucket: Not supported for TinkerNativeBackend.
+            not_after_step: If provided, uses the latest checkpoint <= this step.
+            verbose: Whether to print verbose output.
+            prefix: Not applicable for TinkerNativeBackend.
+        """
+        if from_s3_bucket is not None:
+            raise NotImplementedError(
+                "from_s3_bucket is not supported for TinkerNativeBackend. "
+                "Tinker checkpoints are stored on Tinker infrastructure, not S3."
+            )
+
+        trainable_model = cast(TrainableModel, model)
+
+        if trainable_model.name not in self._model_state:
+            raise RuntimeError(
+                f"Model '{trainable_model.name}' is not registered. "
+                "Call register() before forking."
+            )
+
+        from_project = from_project or model.project
+
+        # Read the source model's state.json to get its tinker_run_ids
+        source_state_dir = get_model_dir(
+            Model(name=from_model, project=from_project),
+            art_path=self._path,
+        )
+        source_state_path = f"{source_state_dir}/state.json"
+        import json
+
+        if not os.path.exists(source_state_path):
+            raise FileNotFoundError(
+                f"Source model state not found at {source_state_path}. "
+                f"Ensure the source model '{from_model}' has been trained "
+                f"with this backend."
+            )
+        with open(source_state_path, "r") as f:
+            source_state = json.load(f)
+
+        source_run_ids = list(source_state.get(STATE_KEY_RUN_IDS, []))
+        if not source_run_ids:
+            raise ValueError(
+                f"Source model '{from_model}' has no tinker run IDs in its state."
+            )
+
+        # List source model's checkpoints
+        dest_state = self._model_state[trainable_model.name]
+        training_paths, sampler_paths = await self._list_checkpoints(
+            dest_state.rest_client, source_run_ids
+        )
+
+        if not training_paths:
+            raise ValueError(
+                f"No training checkpoints found for source model '{from_model}'."
+            )
+
+        # Select the target step
+        available_steps = sorted(training_paths.keys())
+        if not_after_step is not None:
+            eligible_steps = [s for s in available_steps if s <= not_after_step]
+            if not eligible_steps:
+                raise ValueError(
+                    f"No checkpoint found at or before step {not_after_step}. "
+                    f"Available steps: {available_steps}"
+                )
+            target_step = max(eligible_steps)
+        else:
+            target_step = max(available_steps)
+
+        source_checkpoint_path = training_paths[target_step]
+        if verbose:
+            print(
+                f"Forking from '{from_model}' step {target_step} "
+                f"(checkpoint: {source_checkpoint_path})"
+            )
+
+        # Load the source checkpoint into a new training client
+        config = self._resolve_model_config(trainable_model)
+        new_training_client = await self._create_training_client_from_checkpoint(
+            service_client=dest_state.service_client,
+            checkpoint_state_path=source_checkpoint_path,
+            base_model=trainable_model.base_model,
+            training_client_args=config.training_client_args,
+            reset_optimizer=True,
+        )
+
+        # Save new sampler weights
+        checkpoint_name = f"step_{target_step:06d}"
+        sampler_response = await self._save_sampler_weights(
+            new_training_client, checkpoint_name
+        )
+
+        # Create a sampler client from the new weights
+        sampler_client = await self._tinker_train_call(
+            "create_sampling_client_async",
+            new_training_client.create_sampling_client_async(
+                model_path=sampler_response.path
+            ),
+        )
+
+        # Update the destination model's state
+        new_run_id = new_training_client.model_id
+        if new_run_id not in dest_state.tinker_run_ids:
+            dest_state.tinker_run_ids.append(new_run_id)
+
+        dest_state.training_client = new_training_client
+        dest_state.current_step = target_step
+        dest_state.sampler_clients[target_step] = sampler_client
+        dest_state.sampler_checkpoint_paths[target_step] = sampler_response.path
+        dest_state.training_checkpoint_paths[target_step] = source_checkpoint_path
+
+        self._persist_model_state(trainable_model, dest_state)
+
+        if verbose:
+            print(
+                f"Fork complete. Model '{trainable_model.name}' is now at "
+                f"step {target_step}."
+            )
