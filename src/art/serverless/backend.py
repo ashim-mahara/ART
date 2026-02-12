@@ -210,11 +210,6 @@ class ServerlessBackend(Backend):
         """
         groups_list = list(trajectory_groups)
 
-        # Record provenance in W&B
-        wandb_run = model._get_wandb_run()
-        if wandb_run is not None:
-            record_provenance(wandb_run, "serverless-rl")
-
         # Build config objects from explicit kwargs
         config = TrainConfig(learning_rate=learning_rate, beta=beta)
         dev_config: dev.TrainConfig = {
@@ -259,6 +254,11 @@ class ServerlessBackend(Backend):
         artifact_name: str | None = None
         if model.entity is not None:
             artifact_name = f"{model.entity}/{model.project}/{model.name}:step{step}"
+
+        # Record provenance on the latest W&B artifact
+        wandb_run = model._get_wandb_run()
+        if wandb_run is not None:
+            record_provenance(wandb_run, "serverless-rl")
 
         return ServerlessTrainResult(
             step=step,
@@ -644,6 +644,20 @@ class ServerlessBackend(Backend):
             aliases.insert(0, f"step{selected_step}")
         run.log_artifact(dest_artifact, aliases=aliases)
         run.finish()
+
+        # Copy provenance from the source model's W&B run to the destination model
+        api = wandb.Api(api_key=self._client.api_key)  # ty:ignore[possibly-missing-attribute]
+        try:
+            source_run = api.run(f"{model.entity}/{from_project}/{from_model}")
+            source_provenance = source_run.config.get("wandb.provenance")
+            if source_provenance is not None:
+                dest_run = model._get_wandb_run()
+                if dest_run is not None:
+                    dest_run.config.update(
+                        {"wandb.provenance": list(source_provenance)}
+                    )
+        except Exception:
+            pass  # Source run may not exist (e.g., S3-only models)
 
         if verbose:
             print(
